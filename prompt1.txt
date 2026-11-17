@@ -1,0 +1,19 @@
+Act as an expert multiplayer game developer and software architect. Build a fully functional, highly polished, real-time multiplayer 3D/2.5D shooter browser game designed to be extremely appealing, vibrant, and engaging for 10 to 15-year-olds. 
+
+Execute this task completely autonomously inside the current repository. Implement the following requirements:
+
+1. Tech Stack & Architecture:
+   - Frontend: HTML5, CSS3, and JavaScript utilizing Three.js (or Babylon.js) for clean, colorful, low-poly 3D graphics, particle effects, smooth lighting, and responsive UI overlays.
+   - Multiplayer Backend: Node.js with WebSockets (Socket.io) or WebRTC for real-time player synchronization, smooth movement, and live hit-registration.
+   - Ready for Cloud Hosting: Structure the project with clear separation between client and server files, include a robust package.json with start scripts, and configure environment-agnostic port binding (using process.env.PORT) so it can be easily hosted later on platforms like Render, Railway, or Glitch.
+
+2. Gameplay & Aesthetics:
+   - Theme: Vibrant, futuristic sci-fi or vibrant arena map with neon accents, cover structures, and dynamic lighting that appeals instantly to teens.
+   - Weapons: Multiple weapon classes with fantastic visual feedback (e.g., a rapid-fire sci-fi Pistol, a heavy Shotgun, and an Energy Rifle), complete with recoil animation, muzzle flashes, custom crosshairs, ammo counters, and sound effect placeholders/synthesized audio web-apis.
+   - Multiplayer Features: Real-time room joining, display name selection, live scoreboards (kills/deaths), player health bars, and smooth interpolation for remote player movements.
+
+3. Execution Tasks:
+   - Create all necessary directory structures (e.g., public/client assets, server directory).
+   - Write all code files completely with robust error handling.
+   - Install all required dependencies (npm install) and verify that the application boots up cleanly without errors.
+   - Create a clear README.md explaining how to run the local development server and how to deploy it to a cloud provider.

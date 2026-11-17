@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#05030e" />
+  <meta name="description" content="NEON RIFT — a fast, vibrant real-time multiplayer 3D arena shooter. Grab your friends, pick a weapon and light up the rift." />
+  <title>NEON RIFT — Multiplayer Arena Shooter</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/three.module.js"
+      }
+    }
+  </script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas" aria-label="NEON RIFT game view" tabindex="0"></canvas>
+    <div id="ambient-vignette"></div>
+    <div id="damage-flash"></div>
+    <div id="low-health-vignette"></div>
+
+    <!-- ===================== MAIN MENU ===================== -->
+    <div id="menu" class="screen">
+      <div class="menu-grid"></div>
+      <div class="menu-scanlines"></div>
+      <div class="menu-glow glow-cyan"></div>
+      <div class="menu-glow glow-magenta"></div>
+
+      <div class="menu-content">
+        <header class="brand">
+          <div class="brand-kicker"><span class="dot"></span> SECTOR 07 // LIVE ARENA</div>
+          <h1 class="logo" data-text="NEON RIFT">NEON RIFT</h1>
+          <p class="tagline">FAST &middot; FLASHY &middot; GLORIOUSLY CHAOTIC</p>
+        </header>
+
+        <section class="menu-panel glass">
+          <div class="panel-corner tl"></div>
+          <div class="panel-corner tr"></div>
+          <div class="panel-corner bl"></div>
+          <div class="panel-corner br"></div>
+
+          <div class="field">
+            <label for="name-input">CALLSIGN</label>
+            <input id="name-input" type="text" maxlength="16" placeholder="ENTER YOUR NAME" autocomplete="off" spellcheck="false" />
+          </div>
+
+          <div class="join-row">
+            <div class="field room-field">
+              <label for="room-input">ROOM CODE <span class="hint">OPTIONAL</span></label>
+              <input id="room-input" type="text" maxlength="10" placeholder="NR-XXXX" autocomplete="off" spellcheck="false" />
+            </div>
+            <button id="join-room-btn" class="btn btn-ghost" type="button">JOIN ROOM</button>
+          </div>
+
+          <button id="quickplay-btn" class="btn btn-primary" type="button">
+            <span class="btn-arrow">&#9654;</span> QUICK PLAY
+          </button>
+
+          <div id="menu-error" class="menu-error" role="alert"></div>
+
+          <div class="menu-meta">
+            <span>UP TO 8 PLAYERS</span><i></i><span>5 MIN DEATHMATCH</span><i></i><span>BOTS FILL EMPTY SLOTS</span>
+          </div>
+        </section>
+
+        <section class="menu-lower">
+          <div class="info-card glass">
+            <h3>CONTROLS</h3>
+            <div class="controls-grid">
+              <div><kbd>W A S D</kbd><span>Move</span></div>
+              <div><kbd>MOUSE</kbd><span>Aim</span></div>
+              <div><kbd>LEFT CLICK</kbd><span>Fire</span></div>
+              <div><kbd>1 2 3</kbd><span>Weapons</span></div>
+              <div><kbd>R</kbd><span>Reload</span></div>
+              <div><kbd>SHIFT</kbd><span>Sprint</span></div>
+              <div><kbd>SPACE</kbd><span>Jump</span></div>
+              <div><kbd>TAB</kbd><span>Scores</span></div>
+            </div>
+          </div>
+
+          <div class="info-card glass">
+            <h3>SETTINGS</h3>
+            <div class="setting-row">
+              <label for="sensitivity">AIM SENSITIVITY</label>
+              <span id="sens-value" class="setting-value">1.0</span>
+            </div>
+            <input id="sensitivity" class="slider" type="range" min="0.4" max="2.2" step="0.05" value="1" />
+            <div class="setting-row toggle-row">
+              <span>SOUND</span>
+              <button id="sound-toggle" class="btn btn-mini" type="button">ON</button>
+            </div>
+            <div class="setting-row toggle-row">
+              <span>GRAPHICS</span>
+              <div class="segmented" id="quality-toggle">
+                <button type="button" data-quality="high" class="active">HIGH</button>
+                <button type="button" data-quality="lite">LITE</button>
+              </div>
+            </div>
+            <p class="settings-note">Tip: use headphones. Audio is synthesized live.</p>
+          </div>
+        </section>
+
+        <footer class="menu-footer">
+          <span>NEON RIFT v1.0</span>
+          <span class="sep">//</span>
+          <span>THREE.JS + SOCKET.IO</span>
+          <span class="sep">//</span>
+          <span>INSTANT BROWSER MULTIPLAYER</span>
+        </footer>
+      </div>
+    </div>
+
+    <!-- ===================== HUD ===================== -->
+    <div id="hud" class="hidden">
+      <div class="hud-top-left">
+        <div class="health-panel">
+          <div class="health-label"><span>HULL INTEGRITY</span><b id="health-value">100</b></div>
+          <div class="health-bar"><div id="health-fill" class="health-fill"></div><div class="health-ticks"></div></div>
+          <div class="score-strip">
+            <span class="score-kill"><em>K</em><b id="kills">0</b></span>
+            <span class="score-death"><em>D</em><b id="deaths">0</b></span>
+            <span class="score-streak hidden" id="streak-chip">STREAK <b id="streak-value">0</b></span>
+            <span class="score-shield hidden" id="shield-chip">SHIELD</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-top-center">
+        <div class="match-clock">
+          <span class="clock-label">MATCH TIME</span>
+          <b id="match-timer">5:00</b>
+        </div>
+        <div class="room-chip" id="room-chip" title="Click to copy room code">
+          ROOM <b id="room-code">----</b>
+        </div>
+      </div>
+
+      <div class="hud-top-right">
+        <div id="killfeed" class="killfeed"></div>
+        <div id="notices" class="notices"></div>
+      </div>
+
+      <div id="crosshair" class="crosshair crosshair-rifle">
+        <span class="ch-line ch-top"></span>
+        <span class="ch-line ch-bottom"></span>
+        <span class="ch-line ch-left"></span>
+        <span class="ch-line ch-right"></span>
+        <span class="ch-dot"></span>
+      </div>
+
+      <div id="hitmarker" class="hitmarker">
+        <span></span><span></span><span></span><span></span>
+      </div>
+
+      <div id="damage-numbers" class="damage-numbers"></div>
+
+      <div id="kill-banner" class="kill-banner"></div>
+
+      <div class="hud-bottom-left">
+        <div id="lock-hint" class="lock-hint hidden">CLICK TO LOCK CURSOR</div>
+        <div id="respawn-hint" class="respawn-hint hidden">RESPAWNING&hellip;</div>
+      </div>
+
+      <div class="hud-bottom-right">
+        <div class="weapon-panel">
+          <div class="weapon-head">
+            <span class="weapon-label">EQUIPPED</span>
+            <b id="weapon-name">ION RIFLE</b>
+          </div>
+          <div class="ammo-row">
+            <span id="ammo-mag" class="ammo-mag">32</span>
+            <span class="ammo-sep">/</span>
+            <span id="ammo-reserve" class="ammo-reserve">&infin;</span>
+          </div>
+          <div id="weapon-slots" class="weapon-slots">
+            <div class="weapon-slot" data-weapon="pistol"><span>1</span>PULSE</div>
+            <div class="weapon-slot" data-weapon="shotgun"><span>2</span>NOVA</div>
+            <div class="weapon-slot active" data-weapon="rifle"><span>3</span>ION</div>
+          </div>
+          <div id="reload-indicator" class="reload-indicator hidden">
+            <span>RELOADING</span>
+            <div class="reload-track"><i id="reload-fill"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="scoreboard" class="overlay hidden">
+        <div class="overlay-panel scoreboard-panel glass">
+          <div class="overlay-head">
+            <h2>LIVE SCOREBOARD</h2>
+            <span id="scoreboard-room" class="chip">NR-0000</span>
+          </div>
+          <table class="scoreboard-table">
+            <thead>
+              <tr><th>#</th><th>PLAYER</th><th>K</th><th>D</th><th>STREAK</th></tr>
+            </thead>
+            <tbody id="scoreboard-body"></tbody>
+          </table>
+          <div class="overlay-foot">HOLD <kbd>TAB</kbd> TO VIEW &middot; FIRST TO THE MOST KILLS WINS</div>
+        </div>
+      </div>
+
+      <div id="death-screen" class="death-screen hidden">
+        <div class="death-content">
+          <div class="death-kicker">HULL BREACH DETECTED</div>
+          <h2 class="death-title">SYSTEMS DOWN</h2>
+          <div class="death-by">RIFTED BY <b id="death-killer">---</b> <span id="death-weapon" class="death-weapon"></span></div>
+          <div class="respawn-label">REDEPLOYING IN <b id="respawn-countdown">3.0</b></div>
+          <div class="respawn-track"><i id="respawn-fill"></i></div>
+        </div>
+      </div>
+
+      <div id="pause" class="overlay hidden">
+        <div class="overlay-panel pause-panel glass">
+          <div class="overlay-head"><h2>PAUSED</h2><span class="chip">MATCH IN PROGRESS</span></div>
+          <p class="pause-note">The arena keeps moving without you. Redeploy when ready.</p>
+          <div class="pause-buttons">
+            <button id="resume-btn" class="btn btn-primary" type="button">RESUME</button>
+            <button id="leave-btn" class="btn btn-ghost" type="button">LEAVE MATCH</button>
+          </div>
+          <div class="setting-row toggle-row">
+            <span>SOUND</span>
+            <button id="sound-toggle-pause" class="btn btn-mini" type="button">ON</button>
+          </div>
+          <div class="overlay-foot">Press <kbd>ESC</kbd> to pause &middot; click resume to lock your cursor</div>
+        </div>
+      </div>
+
+      <div id="results" class="overlay hidden">
+        <div class="overlay-panel results-panel glass">
+          <div class="results-kicker">MATCH COMPLETE</div>
+          <h2 id="results-title">VICTORY</h2>
+          <div id="results-sub" class="results-sub">Top fraggers of the rift</div>
+          <ol id="results-list" class="results-list"></ol>
+          <div class="results-foot">NEXT MATCH IN <b id="results-countdown">14</b>s</div>
+          <button id="results-leave-btn" class="btn btn-ghost results-leave" type="button">RETURN TO MENU</button>
+        </div>
+      </div>
+
+      <div id="signal-lost" class="overlay hidden">
+        <div class="overlay-panel pause-panel glass">
+          <div class="overlay-head"><h2>SIGNAL LOST</h2><span class="chip danger">DISCONNECTED</span></div>
+          <p class="pause-note">The rift connection dropped. Reload to jump back into the arena.</p>
+          <button id="reload-btn" class="btn btn-primary" type="button">RECONNECT</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="boot" class="boot-screen">
+      <div class="boot-logo">NEON RIFT</div>
+      <div class="boot-bar"><i></i></div>
+      <div class="boot-text" id="boot-text">CALIBRATING RIFT&hellip;</div>
+    </div>
+
+    <div id="rotate-device" class="rotate-device">
+      <div>BEST PLAYED IN LANDSCAPE</div>
+      <span>Rotate your device for the full arena experience.</span>
+    </div>
+  </div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

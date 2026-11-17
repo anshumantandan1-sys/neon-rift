@@ -1,0 +1,21 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploys NEON RIFT as a single free Web Service. The service name also
+# becomes the public subdomain: https://neonrift.onrender.com
+#
+# Note: rooms live in server memory, so this app must always run as exactly
+# ONE instance. Do not add replicas or horizontal scaling.
+services:
+  - type: web
+    name: neonrift
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
