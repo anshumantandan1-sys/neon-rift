@@ -141,13 +141,17 @@ The app is a single Node process that serves both static files and WebSockets. A
 
 ### Render
 
-1. Push this folder to a Git repository.
-2. Render → **New → Web Service** → connect the repo.
-3. Build command: `npm install`
-4. Start command: `npm start`
-5. Health check path: `/health`
+This repo ships a [`render.yaml`](render.yaml) Blueprint that deploys the game as one **free** Node web service named `neonrift`.
 
-Render injects `PORT` automatically — no extra configuration.
+1. In Render: **New → Blueprint**, connect the GitHub repo, then click **Apply**.
+2. Render runs `npm ci`, starts `npm start` and polls `GET /health`.
+3. The game goes live at **https://neonrift.onrender.com** — a service's name becomes its `onrender.com` subdomain.
+
+Prefer to configure it by hand? **New → Web Service → Public Git repository**, paste `https://github.com/anshumantandan1-sys/neon-rift`, then set build `npm ci`, start `npm start`, health check `/health`, plan **Free**.
+
+Render injects `PORT` (and binds the service to `0.0.0.0`) automatically — no extra configuration.
+
+> **Free-plan caveat:** Render spins a free service down after 15 minutes with no traffic, including WebSocket messages, and takes about a minute to wake. An active match keeps it awake; the first visitor after an idle period waits on a loading page. Rooms live in server memory, so run **exactly one instance** — no replicas or autoscaling.
 
 ### Railway
 
