@@ -40,7 +40,7 @@ import {
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-const ANIMAL_KINDS = ['deer', 'cow', 'chicken', 'deer', 'chicken', 'deer', 'cow'];
+const ANIMAL_KINDS = ['deer', 'bear', 'chicken', 'deer', 'chicken', 'deer', 'bear'];
 const BOT_WEAPONS = ['rifle', 'smg', 'dmr', 'rifle', 'shotgun'];
 
 function normalizeDir(raw) {

@@ -18,7 +18,7 @@ NEON RIFT has moved out of the neon arena and into the countryside. Five weapons
 | **Five lives per match** | Every wreck costs one chassis. Lose all five and you are eliminated; the match ends early when only one fighter still has lives. |
 | **First-person body** | Gloved hands, sleeves, torso and a physical weapon are visible in a separate overlay pass, so the gun never clips through cover. |
 | **Countryside battlefield** | 70 × 70 m fenced pasture with a winding pebbled road, grass, rolling hills, oaks, a barn, silo, windmill, stone ruin, pond, hay bales, crates, stone walls and fences. |
-| **Huntable animals** | Deer, cows and chickens wander the pasture. Shoot them to heal and raise your **hunts** score; they respawn after 22 s. |
+| **Huntable animals** | Deer, bears and chickens wander the pasture. Shoot them to heal and raise your **hunts** score; they respawn after 22 s. |
 | **Made to survive** | 3-second spawn shields, forgiving health regen, softened bot aim and a **Ctrl/C combat dodge** with 460 ms of invulnerability. A directional indicator points at whoever is shooting you. |
 | **Robots that fall** | Every opponent is a humanoid combat robot with a name tag, health bar and a proper topple-over wreck animation. |
 | **Juicy feedback** | Recoil kick, muzzle flashes, tracers, impact sparks, kill bursts, screen shake, FOV punch, dynamic crosshairs, hitmarkers and damage numbers. |
@@ -101,7 +101,7 @@ $env:PORT=8080; npm start  # PowerShell
 * If only one fighter still has lives, the match ends early as a **last-standing** victory; otherwise the highest kills win when the **5-minute** timer expires.
 * **Combat dodge** gives 460 ms of invulnerability on a 2.6 s cooldown — use it to break a bot's firing line.
 * Health regenerates at 16 HP/s after 4.6 s out of combat. Bots deliberately aim with human-like spread and deal 62% damage.
-* Shooting a **deer** (+25 HP), **cow** (+30 HP) or **chicken** (+10 HP) heals you and adds to your hunt count. Animals respawn after 22 s.
+* Shooting a **deer** (+25 HP), **bear** (+35 HP) or **chicken** (+10 HP) heals you and adds to your hunt count. Animals respawn after 22 s.
 
 ### Rooms
 
@@ -128,7 +128,7 @@ $env:PORT=8080; npm start  # PowerShell
 │       ├── main.js       # Boot, Socket.io events, join/leave flow, loadout persistence, settings
 │       ├── game.js       # Renderer/scene, local shooting, lives, dodge, animals, match integration
 │       ├── player.js     # Input, first-person controller, humanoid robot avatars + topple deaths
-│       ├── animals.js    # Procedural deer/cow/chicken models, walk/gaze/fall animation, tags
+│       ├── animals.js    # Procedural deer/bear/chicken models, walk/gaze/fall animation, tags
 │       ├── arena.js      # SHARED geometry + collision/raycast math (client & server)
 │       ├── weapons.js    # Client weapon feel + five procedural view-models and gloved arms
 │       ├── world.js      # Procedural countryside: road, barn, silo, windmill, pond, trees, sky

@@ -86,7 +86,7 @@ export const ANIMAL_SPAWNS = [
 
 export const ANIMAL_SPECS = {
   deer: { radius: 0.55, height: 1.55 },
-  cow: { radius: 0.82, height: 1.55 },
+  bear: { radius: 0.72, height: 1.75 },
   chicken: { radius: 0.24, height: 0.55 },
 };
 

@@ -94,6 +94,9 @@ ok(room.humanCount() === 2, 'two human players joined');
 ok(alpha.lives === MAX_LIVES && bravo.lives === MAX_LIVES, `every fighter starts with ${MAX_LIVES} lives`);
 ok(alpha.weapon === 'dmr', 'join loadout is applied to the fighter');
 ok(room.animals.size === 7, 'seven huntable animals roam the pasture');
+const initialKinds = new Set([...room.animals.values()].map((a) => a.kind));
+ok(initialKinds.has('bear') && initialKinds.has('deer') && initialKinds.has('chicken'), 'wildlife includes deer, bears and chickens');
+ok(!initialKinds.has('cow'), 'the cow has been replaced by the bear');
 
 clearBots(room);
 ok([...room.players.values()].filter((p) => p.isBot).length === 0, 'test arena cleared of bots');
@@ -264,6 +267,34 @@ chicken.respawnAt = Date.now() - 1;
 room.updateAnimals(1 / 30, Date.now());
 ok(chicken.alive === true && chicken.health === ANIMALS.chicken.health, 'animals respawn after their timer');
 ok(chicken.respawnAt === 0, 'respawned animal clears its timer');
+
+// Bears are the heavy game animal.
+room.animals.clear();
+const bear = room.spawnAnimal('bear', 0);
+bear.x = 0;
+bear.z = 5;
+bear.y = 0;
+bear.health = ANIMALS.bear.health;
+bear.maxHealth = ANIMALS.bear.health;
+bear.alive = true;
+bear.wanderX = bear.x;
+bear.wanderZ = bear.z;
+bear.respawnAt = 0;
+
+place(alpha, 0, 24);
+place(bravo, 30, 30);
+alpha.weapon = 'dmr';
+alpha.health = 40;
+alpha.hunts = 0;
+events.length = 0;
+for (let i = 0; i < 3; i++) {
+  alpha.lastShot = 0;
+  room.handleShoot(alpha, { x: 0, y: -0.03, z: -1 });
+}
+const bearKill = latest('animalKilled');
+ok(bearKill && bearKill.kind === 'bear' && bearKill.label === 'BEAR', 'bears can be hunted');
+ok(bear.alive === false && alpha.hunts === 1, 'a bear kill counts toward the hunt total');
+ok(alpha.health === 75, 'hunting a bear restores 35 hull');
 
 // ------------------------------------------------------------------
 // Five-life elimination & last-standing early end

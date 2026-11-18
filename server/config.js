@@ -33,7 +33,7 @@ export const ANIMAL_COUNT = 7;
 export const ANIMAL_RESPAWN_MS = 22000;
 export const ANIMALS = {
   deer: { id: 'deer', label: 'DEER', health: 45, heal: 25, radius: 0.55, height: 1.55, speed: 2.2 },
-  cow: { id: 'cow', label: 'COW', health: 75, heal: 30, radius: 0.82, height: 1.55, speed: 1.2 },
+  bear: { id: 'bear', label: 'BEAR', health: 85, heal: 35, radius: 0.72, height: 1.75, speed: 1.7 },
   chicken: { id: 'chicken', label: 'CHICKEN', health: 18, heal: 10, radius: 0.24, height: 0.55, speed: 2.4 },
 };
 
