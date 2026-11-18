@@ -1,75 +1,96 @@
 /**
- * NEON RIFT - shared arena definition & collision math.
+ * NEON RIFT — shared countryside arena definition & collision math.
  *
  * This module is intentionally free of DOM / Node specific APIs so the exact
  * same geometry is used by the authoritative server and the Three.js client.
  * Coordinates: X/Z are the ground plane, Y is up. One unit = one meter.
  */
 
-export const ARENA_SIZE = 70; // floor is 70 x 70
+export const ARENA_SIZE = 70; // fenced pasture is 70 x 70
 export const ARENA_HALF = ARENA_SIZE / 2;
-export const WALL_HEIGHT = 6.5;
+export const WALL_HEIGHT = 1.7;
 
+/** Spawn points along the fence line, all facing the middle of the pasture. */
 export const SPAWNS = [
-  { x: 0, z: -28.5 },
-  { x: 19, z: -25 },
-  { x: 28.5, z: -9 },
-  { x: 28.5, z: 12 },
-  { x: 16, z: 27.5 },
-  { x: -16, z: 27.5 },
-  { x: -28.5, z: 12 },
-  { x: -28.5, z: -10 },
-  { x: -19, z: -25 },
+  { x: 0, z: -31.5 },
+  { x: 22, z: -29 },
+  { x: 31, z: -8 },
+  { x: 31, z: 12 },
+  { x: 20, z: 30 },
+  { x: -18, z: 30 },
+  { x: -31, z: 14 },
+  { x: -31, z: -10 },
+  { x: -20, z: -30 },
+  { x: 0, z: 31 },
 ];
 
 /**
- * Static arena geometry. `kind` drives the visual style on the client.
- * Outer walls are included so collision / raycasting is uniform.
+ * Static obstacles. `kind` drives the visual style on the client.
+ * Every entry is an axis-aligned box used for collision and bullet rays.
  */
 export const OBSTACLES = [
-  // --- Outer boundary -------------------------------------------------
-  { x: 0, z: -35.5, w: 73, d: 2, h: WALL_HEIGHT, kind: 'wall' },
-  { x: 0, z: 35.5, w: 73, d: 2, h: WALL_HEIGHT, kind: 'wall' },
-  { x: -35.5, z: 0, w: 2, d: 73, h: WALL_HEIGHT, kind: 'wall' },
-  { x: 35.5, z: 0, w: 2, d: 73, h: WALL_HEIGHT, kind: 'wall' },
+  // --- Boundary fence ---------------------------------------------------
+  { x: 0, z: -35.3, w: 72, d: 1.0, h: WALL_HEIGHT, kind: 'fence' },
+  { x: 0, z: 35.3, w: 72, d: 1.0, h: WALL_HEIGHT, kind: 'fence' },
+  { x: -35.3, z: 0, w: 1.0, d: 72, h: WALL_HEIGHT, kind: 'fence' },
+  { x: 35.3, z: 0, w: 1.0, d: 72, h: WALL_HEIGHT, kind: 'fence' },
 
-  // --- Central reactor tower -----------------------------------------
-  { x: 0, z: 0, w: 7, d: 7, h: 4.6, kind: 'tower' },
+  // --- Old stone ruin at the heart of the pasture -----------------------
+  { x: 0, z: 0, w: 6, d: 6, h: 2.7, kind: 'ruin' },
 
-  // --- Energy barriers ringing the center -----------------------------
-  { x: 0, z: -13.5, w: 14, d: 1.3, h: 1.9, kind: 'barrier' },
-  { x: 0, z: 13.5, w: 14, d: 1.3, h: 1.9, kind: 'barrier' },
-  { x: -13.5, z: 0, w: 1.3, d: 14, h: 1.9, kind: 'barrier' },
-  { x: 13.5, z: 0, w: 1.3, d: 14, h: 1.9, kind: 'barrier' },
+  // --- Farm buildings ---------------------------------------------------
+  { x: -22, z: -19, w: 12, d: 9, h: 5.6, kind: 'barn' },
+  { x: -31, z: -21, w: 4, d: 4, h: 8.6, kind: 'silo' },
+  { x: 25, z: -26, w: 3.2, d: 3.2, h: 9.4, kind: 'windmill' },
 
-  // --- Corner strongholds --------------------------------------------
-  { x: -24, z: -24, w: 4.6, d: 4.6, h: 2.7, kind: 'crate' },
-  { x: 24, z: -24, w: 4.6, d: 4.6, h: 2.7, kind: 'crate' },
-  { x: -24, z: 24, w: 4.6, d: 4.6, h: 2.7, kind: 'crate' },
-  { x: 24, z: 24, w: 4.6, d: 4.6, h: 2.7, kind: 'crate' },
+  // --- Hay, crates and troughs -----------------------------------------
+  { x: -9, z: -8, w: 2.8, d: 1.8, h: 1.3, kind: 'hay' },
+  { x: 10, z: 10, w: 2.8, d: 1.8, h: 1.3, kind: 'hay' },
+  { x: -6, z: -25, w: 2.4, d: 1.7, h: 1.2, kind: 'hay' },
+  { x: 7, z: 25, w: 2.6, d: 1.7, h: 1.2, kind: 'hay' },
+  { x: -14, z: -12, w: 2.2, d: 2.2, h: 2.0, kind: 'crate' },
+  { x: -16.6, z: -9.4, w: 1.7, d: 1.7, h: 1.5, kind: 'crate' },
+  { x: 7, z: 18, w: 3, d: 1.2, h: 1.0, kind: 'trough' },
 
-  // --- Mid-field cover ------------------------------------------------
-  { x: -20, z: -8, w: 3.4, d: 3.4, h: 2.3, kind: 'crate' },
-  { x: 20, z: 8, w: 3.4, d: 3.4, h: 2.3, kind: 'crate' },
-  { x: 8, z: -22, w: 3.6, d: 3.6, h: 2.4, kind: 'crate' },
-  { x: -8, z: 22, w: 3.6, d: 3.6, h: 2.4, kind: 'crate' },
-  { x: -6, z: -25.5, w: 6, d: 1.2, h: 1.3, kind: 'barrier' },
-  { x: 6, z: 25.5, w: 6, d: 1.2, h: 1.3, kind: 'barrier' },
-  { x: -26, z: 4, w: 1.2, d: 6, h: 1.3, kind: 'barrier' },
-  { x: 26, z: -4, w: 1.2, d: 6, h: 1.3, kind: 'barrier' },
+  // --- Dry stone walls --------------------------------------------------
+  { x: -25, z: 2, w: 8, d: 1.0, h: 1.5, kind: 'stonewall' },
+  { x: 24, z: 4, w: 1.0, d: 8, h: 1.5, kind: 'stonewall' },
 
-  // --- Neon pylons ----------------------------------------------------
-  { x: -9, z: -28, w: 2, d: 2, h: 5.4, kind: 'pylon' },
-  { x: 9, z: 28, w: 2, d: 2, h: 5.4, kind: 'pylon' },
-  { x: 28, z: -24, w: 2, d: 2, h: 5.4, kind: 'pylon' },
-  { x: -28, z: 24, w: 2, d: 2, h: 5.4, kind: 'pylon' },
+  // --- Rocks ------------------------------------------------------------
+  { x: 22, z: -18, w: 3, d: 3, h: 1.8, kind: 'rock' },
+  { x: -24, z: 26, w: 2.4, d: 2.4, h: 1.6, kind: 'rock' },
+  { x: 2, z: 22, w: 1.8, d: 1.8, h: 1.2, kind: 'rock' },
 
-  // --- Tall pillars ---------------------------------------------------
-  { x: -9, z: 9, w: 1.8, d: 1.8, h: 5.6, kind: 'pillar' },
-  { x: 9, z: -9, w: 1.8, d: 1.8, h: 5.6, kind: 'pillar' },
+  // --- Oak trees (trunk collision only) --------------------------------
+  { x: -12, z: 16, w: 1.0, d: 1.0, h: 3.4, kind: 'tree' },
+  { x: 10, z: 16, w: 1.0, d: 1.0, h: 3.4, kind: 'tree' },
+  { x: 18, z: -8, w: 1.0, d: 1.0, h: 3.4, kind: 'tree' },
+  { x: -18, z: 8, w: 1.0, d: 1.0, h: 3.4, kind: 'tree' },
+  { x: 6, z: -16, w: 1.0, d: 1.0, h: 3.4, kind: 'tree' },
+
+  // --- Paddock fencing --------------------------------------------------
+  { x: 28, z: 18, w: 10, d: 0.7, h: 1.2, kind: 'fence' },
+  { x: -28, z: -2, w: 0.7, d: 10, h: 1.2, kind: 'fence' },
 ];
 
-// Face the center of the arena from every spawn point.
+/** Open grazing spots for the animals. */
+export const ANIMAL_SPAWNS = [
+  { x: 11, z: 28 },
+  { x: 12, z: 14 },
+  { x: -6, z: 26 },
+  { x: 27, z: 8 },
+  { x: -26, z: 18 },
+  { x: 4, z: -26 },
+  { x: -10, z: -30 },
+];
+
+export const ANIMAL_SPECS = {
+  deer: { radius: 0.55, height: 1.55 },
+  cow: { radius: 0.82, height: 1.55 },
+  chicken: { radius: 0.24, height: 0.55 },
+};
+
+// Face the center of the pasture from every spawn point.
 export const SPAWN_YAW = SPAWNS.map((s) => Math.atan2(s.x, s.z));
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -89,8 +110,8 @@ export function resolveCollision(x, z, radius, obstacles = OBSTACLES) {
       const maxZ = o.z + o.d / 2;
       const nx = clamp(x, minX, maxX);
       const nz = clamp(z, minZ, maxZ);
-      let dx = x - nx;
-      let dz = z - nz;
+      const dx = x - nx;
+      const dz = z - nz;
       const d2 = dx * dx + dz * dz;
       if (d2 >= radius * radius) continue;
 
@@ -115,11 +136,23 @@ export function resolveCollision(x, z, radius, obstacles = OBSTACLES) {
     if (!resolved) break;
   }
 
-  // Hard safety clamp so nobody can ever leave the arena.
+  // Hard safety clamp so nobody can ever leave the pasture.
   const lim = ARENA_HALF - 1.6 - radius;
   x = clamp(x, -lim, lim);
   z = clamp(z, -lim, lim);
   return { x, z };
+}
+
+/** True when a circle at (x,z) does not overlap any solid box. */
+export function isFreeSpot(x, z, radius = PLAYER_RADIUS) {
+  for (const o of OBSTACLES) {
+    const nx = clamp(x, o.x - o.w / 2, o.x + o.w / 2);
+    const nz = clamp(z, o.z - o.d / 2, o.z + o.d / 2);
+    const dx = x - nx;
+    const dz = z - nz;
+    if (dx * dx + dz * dz < radius * radius) return false;
+  }
+  return Math.abs(x) < ARENA_HALF - 2 && Math.abs(z) < ARENA_HALF - 2;
 }
 
 /**
@@ -212,6 +245,31 @@ export function rayHitsPlayer(ox, oy, oz, dx, dy, dz, p, maxDist = Infinity) {
   const hitY = oy + dy * t;
   if (hitY < cy + 0.12 || hitY > cy + PLAYER_HEIGHT + 0.05) return null;
   return { t, head: hitY > cy + 1.44 };
+}
+
+/** Ray vs. a low animal capsule (cylinder approximation). */
+export function rayHitsAnimal(ox, oy, oz, dx, dy, dz, animal, maxDist = Infinity) {
+  const spec = ANIMAL_SPECS[animal.kind] || ANIMAL_SPECS.deer;
+  const r = spec.radius + 0.05;
+  const base = animal.y ?? 0;
+  const top = base + spec.height;
+
+  const px = ox - animal.x;
+  const pz = oz - animal.z;
+  const a = dx * dx + dz * dz;
+  if (a < 1e-9) return null;
+  const b = 2 * (px * dx + pz * dz);
+  const c = px * px + pz * pz - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const sq = Math.sqrt(disc);
+  let t = (-b - sq) / (2 * a);
+  if (t < 0) t = (-b + sq) / (2 * a);
+  if (t < 0 || t > maxDist) return null;
+
+  const hitY = oy + dy * t;
+  if (hitY < base + 0.05 || hitY > top) return null;
+  return { t };
 }
 
 export function spawnFacing(spawnIndex) {

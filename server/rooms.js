@@ -1,19 +1,29 @@
 import {
+  ANIMAL_SPAWNS,
+  ARENA_HALF,
   EYE_HEIGHT,
   PLAYER_RADIUS,
   SPAWNS,
+  isFreeSpot,
+  rayHitsAnimal,
   rayHitsArena,
   rayHitsPlayer,
   resolveCollision,
 } from '../public/js/arena.js';
 import {
+  ANIMALS,
+  ANIMAL_COUNT,
+  ANIMAL_RESPAWN_MS,
   BOT_DAMAGE_SCALE,
   BOT_FILL_TOTAL,
   BOT_NAMES,
+  DODGE_COOLDOWN_MS,
+  DODGE_INVULN_MS,
   HEALTH_REGEN_DELAY_MS,
   HEALTH_REGEN_PER_SEC,
   MATCH_DURATION_MS,
   MATCH_RESTART_MS,
+  MAX_LIVES,
   MAX_PLAYERS,
   MAX_ROOMS,
   PLAYER_MAX_HEALTH,
@@ -30,6 +40,9 @@ import {
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
+const ANIMAL_KINDS = ['deer', 'cow', 'chicken', 'deer', 'chicken', 'deer', 'cow'];
+const BOT_WEAPONS = ['rifle', 'smg', 'dmr', 'rifle', 'shotgun'];
+
 function normalizeDir(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const x = Number(raw.x);
@@ -39,6 +52,16 @@ function normalizeDir(raw) {
   const len = Math.hypot(x, y, z);
   if (len < 1e-4 || len > 10) return null;
   return { x: x / len, y: y / len, z: z / len };
+}
+
+function normalizeFlatDir(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = Number(raw.x);
+  const z = Number(raw.z);
+  if (![x, z].every(Number.isFinite)) return null;
+  const len = Math.hypot(x, z);
+  if (len < 1e-4 || len > 10) return null;
+  return { x: x / len, z: z / len };
 }
 
 function spreadDirection(dir, spread) {
@@ -92,6 +115,9 @@ function makePlayer({ id, name, socketId = null, isBot = false }) {
     pitch: 0,
     health: PLAYER_MAX_HEALTH,
     alive: false,
+    lives: MAX_LIVES,
+    eliminated: false,
+    hunts: 0,
     kills: 0,
     deaths: 0,
     streak: 0,
@@ -100,6 +126,8 @@ function makePlayer({ id, name, socketId = null, isBot = false }) {
     lastShot: 0,
     lastDamage: 0,
     invulnUntil: 0,
+    dodgeReadyAt: 0,
+    dodgeUntil: 0,
     lastMoveAt: 0,
     lastAttackerId: null,
     respawnAt: 0,
@@ -120,14 +148,18 @@ export class Room {
     this.code = code;
     this.io = io;
     this.players = new Map();
+    this.animals = new Map();
     this.createdAt = Date.now();
     this.lastHumanAt = Date.now();
     this.state = 'playing';
     this.matchEndsAt = Date.now() + MATCH_DURATION_MS;
     this.restartAt = 0;
+    this.endReason = null;
     this.spawnCursor = Math.floor(Math.random() * SPAWNS.length);
     this.botSeq = 0;
+    this.animalSeq = 0;
     this.closed = false;
+    this.initAnimals();
   }
 
   broadcast(event, payload) {
@@ -140,8 +172,102 @@ export class Room {
     return n;
   }
 
-  join(socket, name) {
+  // ------------------------------------------------------------------
+  // Animals
+  // ------------------------------------------------------------------
+  initAnimals() {
+    for (let i = 0; i < ANIMAL_COUNT; i++) {
+      const kind = ANIMAL_KINDS[i % ANIMAL_KINDS.length];
+      this.spawnAnimal(kind, i);
+    }
+  }
+
+  spawnAnimal(kind, index = 0) {
+    const spec = ANIMALS[kind] || ANIMALS.deer;
+    const base = ANIMAL_SPAWNS[index % ANIMAL_SPAWNS.length];
+    let x = base.x + (Math.random() * 2 - 1) * 3;
+    let z = base.z + (Math.random() * 2 - 1) * 3;
+    if (!isFreeSpot(x, z, spec.radius + 0.5)) {
+      x = base.x;
+      z = base.z;
+    }
+    const safe = resolveCollision(x, z, spec.radius + 0.15);
+    const animal = {
+      id: `animal_${this.code}_${++this.animalSeq}`,
+      kind,
+      x: safe.x,
+      y: 0,
+      z: safe.z,
+      yaw: Math.random() * Math.PI * 2,
+      health: spec.health,
+      maxHealth: spec.health,
+      alive: true,
+      respawnAt: 0,
+      wanderX: safe.x,
+      wanderY: safe.z,
+      wanderAt: 0,
+    };
+    this.animals.set(animal.id, animal);
+    return animal;
+  }
+
+  respawnAnimal(animal) {
+    const spec = ANIMALS[animal.kind] || ANIMALS.deer;
+    const spot = ANIMAL_SPAWNS[Math.floor(Math.random() * ANIMAL_SPAWNS.length)];
+    let x = spot.x + (Math.random() * 2 - 1) * 4;
+    let z = spot.z + (Math.random() * 2 - 1) * 4;
+    if (!isFreeSpot(x, z, spec.radius + 0.5)) {
+      x = spot.x;
+      z = spot.z;
+    }
+    const safe = resolveCollision(x, z, spec.radius + 0.15);
+    animal.x = safe.x;
+    animal.z = safe.z;
+    animal.y = 0;
+    animal.yaw = Math.random() * Math.PI * 2;
+    animal.health = spec.health;
+    animal.alive = true;
+    animal.respawnAt = 0;
+    animal.wanderX = safe.x;
+    animal.wanderZ = safe.z;
+    animal.wanderAt = 0;
+  }
+
+  updateAnimals(dt, now) {
+    for (const animal of this.animals.values()) {
+      if (!animal.alive) {
+        if (animal.respawnAt && now >= animal.respawnAt) this.respawnAnimal(animal);
+        continue;
+      }
+      const spec = ANIMALS[animal.kind] || ANIMALS.deer;
+      if (now >= animal.wanderAt) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 4 + Math.random() * 11;
+        animal.wanderX = clamp(animal.x + Math.cos(angle) * radius, -ARENA_HALF + 4, ARENA_HALF - 4);
+        animal.wanderZ = clamp(animal.z + Math.sin(angle) * radius, -ARENA_HALF + 4, ARENA_HALF - 4);
+        animal.wanderAt = now + 3200 + Math.random() * 5200;
+      }
+      const dx = animal.wanderX - animal.x;
+      const dz = animal.wanderZ - animal.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.35) continue;
+      const speed = spec.speed * (animal.kind === 'chicken' ? 0.85 : 0.7);
+      const step = Math.min(dist, speed * dt);
+      const nx = animal.x + (dx / dist) * step;
+      const nz = animal.z + (dz / dist) * step;
+      const safe = resolveCollision(nx, nz, spec.radius + 0.12);
+      const moved = Math.hypot(safe.x - animal.x, safe.z - animal.z);
+      animal.x = safe.x;
+      animal.z = safe.z;
+      animal.yaw = Math.atan2(-(dx / dist), -(dz / dist));
+      // Blocked by a fence or rock: pick a fresh grazing target next tick.
+      if (moved < step * 0.25) animal.wanderAt = 0;
+    }
+  }
+
+  join(socket, name, loadout = 'rifle') {
     const player = makePlayer({ id: socket.id, name, socketId: socket.id });
+    if (WEAPON_IDS.includes(loadout)) player.weapon = loadout;
     this.players.set(player.id, player);
     this.spawnPlayer(player);
     this.lastHumanAt = Date.now();
@@ -162,7 +288,7 @@ export class Room {
   }
 
   ensureBots() {
-    if (this.closed) return;
+    if (this.closed || this.state === 'ended') return;
     const humans = this.humanCount();
     const desired = clamp(BOT_FILL_TOTAL - humans, 0, 3);
     const bots = [...this.players.values()].filter((p) => p.isBot);
@@ -187,7 +313,7 @@ export class Room {
     while (used.has(base)) base = `BOT-${++this.botSeq}`;
     const id = `bot_${this.code}_${++this.botSeq}_${Math.random().toString(36).slice(2, 5)}`;
     const player = makePlayer({ id, name: base, isBot: true });
-    player.weapon = 'rifle';
+    player.weapon = BOT_WEAPONS[this.botSeq % BOT_WEAPONS.length];
     this.players.set(id, player);
     this.spawnPlayer(player);
     return player;
@@ -213,7 +339,7 @@ export class Room {
     player.x = safe.x;
     player.y = 0;
     player.z = safe.z;
-    // Look toward the reactor so new spawns never stare at a wall.
+    // Look toward the centre of the pasture so new spawns never stare at a wall.
     player.yaw = Math.atan2(s.x, s.z);
     player.pitch = 0;
     player.health = PLAYER_MAX_HEALTH;
@@ -221,6 +347,8 @@ export class Room {
     player.respawnAt = 0;
     player.lastDamage = 0;
     player.invulnUntil = Date.now() + SPAWN_PROTECTION_MS;
+    player.dodgeReadyAt = 0;
+    player.dodgeUntil = 0;
     player.lastMoveAt = 0;
     player.lastShot = Date.now();
     player.streak = 0;
@@ -270,16 +398,36 @@ export class Room {
     player.weapon = weaponId;
   }
 
+  /** Combat roll: short invulnerability window, then a cooldown. */
+  tryDodge(player, rawDir) {
+    if (!player || !player.alive || player.eliminated || this.state !== 'playing') return false;
+    const now = Date.now();
+    if (now < player.dodgeReadyAt) return false;
+    const dir = normalizeFlatDir(rawDir) || { x: 0, z: 1 };
+    player.dodgeReadyAt = now + DODGE_COOLDOWN_MS;
+    player.dodgeUntil = now + DODGE_INVULN_MS;
+    this.broadcast('dodge', {
+      id: player.id,
+      x: player.x,
+      z: player.z,
+      dir,
+      invulnMs: DODGE_INVULN_MS,
+    });
+    return true;
+  }
+
   raycastShot(shooter, aimDir) {
     const weapon = WEAPONS[shooter.weapon] || WEAPONS.rifle;
     const origin = { x: shooter.x, y: shooter.y + EYE_HEIGHT, z: shooter.z };
     const ends = [];
     const hits = new Map();
+    const animalHits = new Map();
 
     for (let p = 0; p < weapon.pellets; p++) {
       const dir = spreadDirection(aimDir, weapon.spread);
       let bestT = weapon.range;
       let bestTarget = null;
+      let bestAnimal = null;
       let bestHead = false;
 
       for (const target of this.players.values()) {
@@ -288,7 +436,19 @@ export class Room {
         if (hit && hit.t < bestT) {
           bestT = hit.t;
           bestTarget = target;
+          bestAnimal = null;
           bestHead = hit.head;
+        }
+      }
+
+      for (const animal of this.animals.values()) {
+        if (!animal.alive) continue;
+        const hit = rayHitsAnimal(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, animal, bestT);
+        if (hit && hit.t < bestT) {
+          bestT = hit.t;
+          bestTarget = null;
+          bestAnimal = animal;
+          bestHead = false;
         }
       }
 
@@ -296,6 +456,7 @@ export class Room {
       if (wallT < bestT) {
         bestT = wallT;
         bestTarget = null;
+        bestAnimal = null;
       }
       // Floor / ceiling so tracers always terminate on something visible.
       if (dir.y < -1e-6) {
@@ -303,6 +464,7 @@ export class Room {
         if (floorT > 0 && floorT < bestT) {
           bestT = floorT;
           bestTarget = null;
+          bestAnimal = null;
         }
       }
 
@@ -325,13 +487,23 @@ export class Room {
         existing.head = existing.head || bestHead;
         hits.set(bestTarget.id, existing);
       }
+      if (bestAnimal) {
+        const existing = animalHits.get(bestAnimal.id) || {
+          animal: bestAnimal,
+          damage: 0,
+          point: end,
+        };
+        existing.damage += weapon.damage;
+        animalHits.set(bestAnimal.id, existing);
+      }
     }
 
-    return { weapon, origin, ends, hits: [...hits.values()] };
+    return { weapon, origin, ends, hits: [...hits.values()], animalHits: [...animalHits.values()] };
   }
 
-  handleShoot(player, rawDir) {
+  handleShoot(player, rawDir, weaponId = null) {
     if (!player || !player.alive || this.state !== 'playing') return;
+    if (weaponId) this.setWeapon(player, weaponId);
     const weapon = WEAPONS[player.weapon] || WEAPONS.rifle;
     const now = Date.now();
     if (now - player.lastShot < weapon.fireDelay * 0.85) return;
@@ -339,7 +511,7 @@ export class Room {
     if (!aimDir) return;
     player.lastShot = now;
 
-    const { origin, ends, hits } = this.raycastShot(player, aimDir);
+    const { origin, ends, hits, animalHits } = this.raycastShot(player, aimDir);
     this.broadcast('shot', {
       shooterId: player.id,
       weapon: player.weapon,
@@ -349,20 +521,89 @@ export class Room {
       bot: player.isBot,
     });
 
+    for (const hit of animalHits) {
+      this.damageAnimal(hit.animal, hit.damage, player, player.weapon, hit.point);
+    }
     for (const hit of hits) {
       const damage = player.isBot ? hit.damage * BOT_DAMAGE_SCALE : hit.damage;
       this.damagePlayer(hit.target, damage, player, player.weapon, hit.head, hit.point);
     }
   }
 
+  damageAnimal(animal, rawDamage, attacker, weaponId, point) {
+    if (!animal || !animal.alive || this.state !== 'playing') return;
+    const spec = ANIMALS[animal.kind] || ANIMALS.deer;
+    const damage = Math.max(1, Math.round(rawDamage));
+    animal.health -= damage;
+    const killed = animal.health <= 0;
+    if (killed) animal.health = 0;
+
+    this.broadcast('animalHit', {
+      animalId: animal.id,
+      kind: animal.kind,
+      label: spec.label || animal.kind.toUpperCase(),
+      attackerId: attacker ? attacker.id : null,
+      damage,
+      health: Math.max(0, Math.round(animal.health)),
+      maxHealth: animal.maxHealth,
+      weapon: weaponId,
+      killed,
+      point: {
+        x: Number.isFinite(point?.x) ? point.x : animal.x,
+        y: Number.isFinite(point?.y) ? point.y : (animal.y ?? 0) + 0.7,
+        z: Number.isFinite(point?.z) ? point.z : animal.z,
+      },
+    });
+
+    if (killed) this.killAnimal(animal, attacker, weaponId, point);
+  }
+
+  killAnimal(animal, attacker, weaponId, point) {
+    if (!animal.alive) return;
+    const spec = ANIMALS[animal.kind] || ANIMALS.deer;
+    const now = Date.now();
+    animal.alive = false;
+    animal.respawnAt = now + ANIMAL_RESPAWN_MS;
+
+    let hunts = 0;
+    let heal = 0;
+    if (attacker && !attacker.eliminated) {
+      attacker.hunts += 1;
+      hunts = attacker.hunts;
+      heal = spec.heal || 0;
+      if (attacker.alive) {
+        attacker.health = Math.min(PLAYER_MAX_HEALTH, attacker.health + heal);
+      }
+    }
+
+    this.broadcast('animalKilled', {
+      animalId: animal.id,
+      kind: animal.kind,
+      label: spec.label || animal.kind.toUpperCase(),
+      attackerId: attacker ? attacker.id : null,
+      attackerName: attacker ? attacker.name : 'THE FIELD',
+      weapon: weaponId,
+      heal,
+      hunts,
+      respawnIn: ANIMAL_RESPAWN_MS,
+      point: point || null,
+    });
+
+    if (attacker && hunts > 0 && hunts % 5 === 0) {
+      this.broadcast('notice', { text: `${attacker.name} has hunted ${hunts} animals!`, kind: 'streak' });
+    }
+  }
+
   damagePlayer(target, rawDamage, attacker, weaponId, headshot, point) {
-    if (!target || !target.alive || this.state !== 'playing') return;
-    // Brief spawn shield: ignores damage from other fighters, never self damage.
-    if (target.invulnUntil > Date.now() && attacker !== target) return;
-    const weapon = WEAPONS[weaponId] || WEAPONS.rifle;
+    if (!target || !target.alive || target.eliminated || this.state !== 'playing') return;
+    const now = Date.now();
+    // Spawn shield, plus the brief dodge i-frame window.
+    if (attacker !== target && target.invulnUntil > now) return;
+    if (attacker !== target && target.dodgeUntil > now) return;
+
     const damage = Math.max(1, Math.round(rawDamage));
     target.health -= damage;
-    target.lastDamage = Date.now();
+    target.lastDamage = now;
     target.lastAttackerId = attacker ? attacker.id : null;
     const killed = target.health <= 0;
     if (killed) target.health = 0;
@@ -370,7 +611,7 @@ export class Room {
     this.broadcast('hit', {
       targetId: target.id,
       attackerId: attacker ? attacker.id : null,
-      attackerName: attacker ? attacker.name : 'ARENA',
+      attackerName: attacker ? attacker.name : 'THE FIELD',
       targetName: target.name,
       damage,
       health: Math.max(0, Math.round(target.health)),
@@ -391,10 +632,12 @@ export class Room {
     const now = Date.now();
     victim.alive = false;
     victim.deaths += 1;
-    victim.respawnAt = now + RESPAWN_TIME_MS;
     victim.streak = 0;
+    victim.lives = Math.max(0, victim.lives - 1);
+    victim.eliminated = victim.lives <= 0;
+    victim.respawnAt = victim.eliminated ? 0 : now + RESPAWN_TIME_MS;
 
-    if (killer && killer !== victim) {
+    if (killer && killer !== victim && !killer.eliminated) {
       killer.kills += 1;
       killer.streak += 1;
       killer.bestStreak = Math.max(killer.bestStreak, killer.streak);
@@ -402,13 +645,15 @@ export class Room {
 
     this.broadcast('kill', {
       killerId: killer ? killer.id : null,
-      killerName: killer ? killer.name : 'THE ARENA',
+      killerName: killer ? killer.name : 'THE FIELD',
       victimId: victim.id,
       victimName: victim.name,
       weapon: weaponId,
       headshot: !!headshot,
       point: point || null,
       streak: killer ? killer.streak : 0,
+      lives: victim.lives,
+      eliminated: victim.eliminated,
     });
 
     if (killer && killer.streak > 0 && killer.streak % 3 === 0) {
@@ -418,14 +663,35 @@ export class Room {
       });
     }
 
+    if (victim.eliminated) {
+      this.broadcast('notice', {
+        text: `${victim.name} is out of lives — eliminated!`,
+        kind: 'danger',
+      });
+    }
+
     const victimSocket = victim.socketId ? this.io.sockets.sockets.get(victim.socketId) : null;
     if (victimSocket) {
       victimSocket.emit('death', {
-        killerName: killer ? killer.name : 'THE ARENA',
+        killerName: killer ? killer.name : 'THE FIELD',
         weapon: weaponId,
         headshot: !!headshot,
-        respawnIn: RESPAWN_TIME_MS,
+        respawnIn: victim.eliminated ? 0 : RESPAWN_TIME_MS,
+        lives: victim.lives,
+        eliminated: victim.eliminated,
       });
+    }
+
+    this.checkElimination();
+  }
+
+  /** End the match early once only one fighter still has lives. */
+  checkElimination() {
+    if (this.state !== 'playing') return;
+    if (this.humanCount() === 0) return;
+    const contenders = [...this.players.values()].filter((p) => !p.eliminated);
+    if (contenders.length <= 1) {
+      this.endMatch(Date.now(), 'last-standing');
     }
   }
 
@@ -445,11 +711,27 @@ export class Room {
         pitch: Math.round(p.pitch * 1000) / 1000,
         health: Math.max(0, Math.round(p.health)),
         shield: p.invulnUntil > now,
+        dodging: p.dodgeUntil > now,
+        dodgeIn: Math.max(0, p.dodgeReadyAt - now),
         alive: p.alive,
+        lives: p.lives,
+        eliminated: p.eliminated,
+        hunts: p.hunts,
         kills: p.kills,
         deaths: p.deaths,
         streak: p.streak,
         weapon: p.weapon,
+      })),
+      animals: [...this.animals.values()].map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        x: Math.round(a.x * 100) / 100,
+        y: Math.round((a.y ?? 0) * 100) / 100,
+        z: Math.round(a.z * 100) / 100,
+        yaw: Math.round(a.yaw * 1000) / 1000,
+        health: Math.max(0, Math.round(a.health)),
+        maxHealth: a.maxHealth,
+        alive: a.alive,
       })),
     };
   }
@@ -464,11 +746,12 @@ export class Room {
           p.health = Math.min(PLAYER_MAX_HEALTH, p.health + rate * dt);
         }
       }
+      this.updateAnimals(dt, now);
     }
 
-    // Respawns.
+    // Respawns (eliminated fighters stay as wrecks for the rest of the match).
     for (const p of this.players.values()) {
-      if (!p.alive && p.respawnAt && now >= p.respawnAt && this.state === 'playing') {
+      if (!p.alive && !p.eliminated && p.respawnAt && now >= p.respawnAt && this.state === 'playing') {
         this.spawnPlayer(p);
       }
     }
@@ -480,17 +763,23 @@ export class Room {
 
     // Match clock.
     if (this.state === 'playing' && now >= this.matchEndsAt) {
-      this.endMatch(now);
+      this.endMatch(now, 'time');
     } else if (this.state === 'ended' && this.restartAt && now >= this.restartAt) {
       this.restartMatch(now);
     }
   }
 
-  endMatch(now) {
+  endMatch(now, reason = 'time') {
+    if (this.state === 'ended') return;
     this.state = 'ended';
+    this.endReason = reason;
     this.matchEndsAt = now;
     this.restartAt = now + MATCH_RESTART_MS;
-    this.broadcast('matchEnd', { standings: this.standings(), restartIn: MATCH_RESTART_MS });
+    this.broadcast('matchEnd', {
+      standings: this.standings(),
+      restartIn: MATCH_RESTART_MS,
+      reason,
+    });
   }
 
   standings() {
@@ -502,12 +791,19 @@ export class Room {
         kills: p.kills,
         deaths: p.deaths,
         bestStreak: p.bestStreak,
+        lives: p.lives,
+        hunts: p.hunts,
+        eliminated: p.eliminated,
       }))
-      .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+      .sort((a, b) => {
+        if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
+        return b.kills - a.kills || a.deaths - b.deaths;
+      });
   }
 
   restartMatch(now) {
     this.state = 'playing';
+    this.endReason = null;
     this.matchEndsAt = now + MATCH_DURATION_MS;
     this.restartAt = 0;
     for (const p of this.players.values()) {
@@ -515,13 +811,17 @@ export class Room {
       p.deaths = 0;
       p.bestStreak = 0;
       p.streak = 0;
+      p.hunts = 0;
+      p.lives = MAX_LIVES;
+      p.eliminated = false;
       this.spawnPlayer(p);
     }
+    for (const animal of this.animals.values()) this.respawnAnimal(animal);
     this.broadcast('matchStart', { timeLeft: MATCH_DURATION_MS / 1000 });
   }
 
   updateBot(bot, dt, now) {
-    if (!bot.alive) return;
+    if (!bot.alive || bot.eliminated) return;
     if (this.state !== 'playing') return;
 
     if (now >= bot.botNextThink) {
@@ -589,7 +889,7 @@ export class Room {
     // Basic obstacle avoidance: if we are barely moving, pick a new direction.
     const beforeX = bot.x;
     const beforeZ = bot.z;
-    const speed = 5.6;
+    const speed = 5.2;
     const len = Math.hypot(moveX, moveZ) || 1;
     const safe = resolveCollision(bot.x + (moveX / len) * speed * dt, bot.z + (moveZ / len) * speed * dt, PLAYER_RADIUS);
     bot.x = safe.x;
@@ -619,7 +919,7 @@ export class Room {
       const weapon = WEAPONS[bot.weapon] || WEAPONS.rifle;
 
       if (canSee && dist < weapon.range * 0.85 && now >= bot.botNextShot) {
-        const spreadBase = 0.045 + Math.random() * 0.06 + (dist > 22 ? 0.03 : 0);
+        const spreadBase = 0.05 + Math.random() * 0.07 + (dist > 22 ? 0.035 : 0);
         const yawErr = (Math.random() * 2 - 1) * spreadBase;
         const pitchErr = (Math.random() * 2 - 1) * spreadBase * 0.7;
         const cp = Math.cos(yawErr);
@@ -635,9 +935,9 @@ export class Room {
         bot.botBurst -= 1;
         if (bot.botBurst <= 0) {
           bot.botBurst = 2 + Math.floor(Math.random() * 3);
-          bot.botNextShot = now + 750 + Math.random() * 550;
+          bot.botNextShot = now + 820 + Math.random() * 620;
         } else {
-          bot.botNextShot = now + 250 + Math.random() * 170;
+          bot.botNextShot = now + 280 + Math.random() * 180;
         }
       }
     }
@@ -710,6 +1010,7 @@ export class GameServer {
     socket.on('move', (data) => this.handleMove(socket, data));
     socket.on('shoot', (data) => this.handleClientShoot(socket, data));
     socket.on('weapon', (data) => this.handleWeapon(socket, data));
+    socket.on('dodge', (data) => this.handleDodge(socket, data));
     socket.on('leave', () => this.leaveRoom(socket));
     socket.on('requestSnapshot', () => {
       const room = this.roomFor(socket);
@@ -730,7 +1031,8 @@ export class GameServer {
         socket.emit('errorMsg', { message: 'You are already in a match.' });
         return;
       }
-      const name = sanitizeName(data?.name) || 'RECRUIT';
+      const name = sanitizeName(data?.name) || 'RANCHER';
+      const loadout = WEAPON_IDS.includes(data?.weapon) ? data.weapon : 'rifle';
       let requested = sanitizeRoomCode(data?.room);
       if (data?.room && String(data.room).toUpperCase() !== 'AUTO' && !requested) {
         socket.emit('errorMsg', { message: 'Room code must be 2-10 letters or numbers.' });
@@ -783,7 +1085,7 @@ export class GameServer {
       socket.data.joined = true;
       socket.data.roomCode = room.code;
 
-      const player = room.join(socket, name);
+      const player = room.join(socket, name, loadout);
       socket.emit('joined', {
         selfId: player.id,
         name: player.name,
@@ -800,6 +1102,7 @@ export class GameServer {
         socket.emit('matchEnd', {
           standings: room.standings(),
           restartIn: Math.max(1000, (room.restartAt || Date.now()) - Date.now()),
+          reason: room.endReason || 'time',
         });
       }
       this.log.info(`[neon-rift] ${name} joined room ${room.code} (${room.humanCount()} human)`);
@@ -822,7 +1125,7 @@ export class GameServer {
     const player = room.players.get(socket.id);
     if (!player) return;
     try {
-      room.handleShoot(player, data?.dir);
+      room.handleShoot(player, data?.dir, data?.weapon);
     } catch (err) {
       this.log.error('[neon-rift] shot failed:', err);
     }
@@ -833,6 +1136,18 @@ export class GameServer {
     if (!room) return;
     const player = room.players.get(socket.id);
     if (player) room.setWeapon(player, data?.weapon);
+  }
+
+  handleDodge(socket, data) {
+    const room = this.roomFor(socket);
+    if (!room) return;
+    const player = room.players.get(socket.id);
+    if (!player) return;
+    try {
+      room.tryDodge(player, data?.dir);
+    } catch (err) {
+      this.log.error('[neon-rift] dodge failed:', err);
+    }
   }
 
   leaveRoom(socket) {

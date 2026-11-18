@@ -1,7 +1,7 @@
 {
   "name": "neon-rift",
-  "version": "1.0.0",
-  "description": "NEON RIFT - a fast, vibrant real-time multiplayer 3D arena shooter built with Three.js and Socket.io.",
+  "version": "1.1.0",
+  "description": "NEON RIFT - a vibrant multiplayer 3D countryside shooter with robots, five weapons, five lives and huntable wildlife, built with Three.js and Socket.io.",
   "type": "module",
   "main": "server/index.js",
   "engines": {

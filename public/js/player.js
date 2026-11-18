@@ -165,6 +165,11 @@ export class LocalPlayer {
     this.camera.rotation.order = 'YXZ';
     this.alive = true;
     this.canMove = true;
+    this.dodgeT = 0;
+    this.dodgeCooldownUntil = 0;
+    this.dodgeRoll = 0;
+    this.lastWishX = 0;
+    this.lastWishZ = -1;
     this._dir = new THREE.Vector3();
     this._right = new THREE.Vector3();
     this._up = new THREE.Vector3(0, 1, 0);
@@ -185,6 +190,8 @@ export class LocalPlayer {
     this.shake = 0;
     this.fovKick = 0;
     this.landDip = 0;
+    this.dodgeT = 0;
+    this.dodgeRoll = 0;
     this.alive = true;
     this.camera.fov = this.baseFov;
     this.camera.updateProjectionMatrix();
@@ -224,6 +231,24 @@ export class LocalPlayer {
     return { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
   }
 
+  /** Combat roll: short burst with server-validated i-frames. */
+  startDodge(dirX, dirZ, now = performance.now()) {
+    if (now < this.dodgeCooldownUntil || this.dodgeT > 0 || !this.grounded) return false;
+    const len = Math.hypot(dirX, dirZ) || 1;
+    this.vx = (dirX / len) * 23;
+    this.vz = (dirZ / len) * 23;
+    this.dodgeT = 0.34;
+    this.dodgeCooldownUntil = now + 2600;
+    this.dodgeRoll = (Math.random() > 0.5 ? 1 : -1) * 0.13;
+    this.addFovKick(2.4);
+    this.callbacks.onDodge?.();
+    return true;
+  }
+
+  dodgeReadyIn(now = performance.now()) {
+    return Math.max(0, this.dodgeCooldownUntil - now);
+  }
+
   update(dt, input, canMove) {
     const mouse = input.consumeMouse();
     const sens = 0.0023 * this.sensitivity;
@@ -239,6 +264,7 @@ export class LocalPlayer {
     this.shake *= Math.exp(-dt * 7);
     this.fovKick *= Math.exp(-dt * 8);
     this.landDip *= Math.exp(-dt * 10);
+    this.dodgeRoll *= Math.exp(-dt * 5.5);
 
     const allow = canMove && this.alive && this.controlsEnabled !== false;
     let ax = 0;
@@ -260,17 +286,30 @@ export class LocalPlayer {
 
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);
-    const targetSpeed = this.sprinting ? 11.6 : 8.2;
-    const wishX = (-sin * az + cos * ax) * targetSpeed;
-    const wishZ = (-cos * az - sin * ax) * targetSpeed;
-    const accel = this.grounded ? 14 : 4.5;
-    const k = 1 - Math.exp(-accel * dt);
-    this.vx += (wishX - this.vx) * k;
-    this.vz += (wishZ - this.vz) * k;
-    if (!this.moving && this.grounded) {
-      const friction = 1 - Math.exp(-12 * dt);
-      this.vx -= this.vx * friction;
-      this.vz -= this.vz * friction;
+    if (this.moving) {
+      this.lastWishX = -sin * az + cos * ax;
+      this.lastWishZ = -cos * az - sin * ax;
+    }
+
+    const dodging = this.dodgeT > 0;
+    if (dodging) {
+      this.dodgeT = Math.max(0, this.dodgeT - dt);
+      const drag = Math.exp(-5.5 * dt);
+      this.vx *= drag;
+      this.vz *= drag;
+    } else {
+      const targetSpeed = this.sprinting ? 11.6 : 8.2;
+      const wishX = (-sin * az + cos * ax) * targetSpeed;
+      const wishZ = (-cos * az - sin * ax) * targetSpeed;
+      const accel = this.grounded ? 14 : 4.5;
+      const k = 1 - Math.exp(-accel * dt);
+      this.vx += (wishX - this.vx) * k;
+      this.vz += (wishZ - this.vz) * k;
+      if (!this.moving && this.grounded) {
+        const friction = 1 - Math.exp(-12 * dt);
+        this.vx -= this.vx * friction;
+        this.vz -= this.vz * friction;
+      }
     }
 
     let nx = this.x + this.vx * dt;
@@ -281,7 +320,7 @@ export class LocalPlayer {
     this.x = safe.x;
     this.z = safe.z;
 
-    if (allow && this.grounded && input.wasPressed('Space')) {
+    if (allow && !dodging && this.grounded && input.wasPressed('Space')) {
       this.vy = 7.2;
       this.grounded = false;
       this.callbacks.onJump?.();
@@ -332,7 +371,7 @@ export class LocalPlayer {
     );
     this.camera.rotation.y = this.yaw + this.recoilYaw + shakeX;
     this.camera.rotation.x = this.pitch + this.recoilPitch + shakeY;
-    this.camera.rotation.z = -strafeLean * 0.35;
+    this.camera.rotation.z = -strafeLean * 0.35 + this.dodgeRoll;
 
     const targetFov = this.baseFov + (this.sprinting && this.moving ? 4 : 0) + this.fovKick;
     if (Math.abs(this.camera.fov - targetFov) > 0.01) {
@@ -360,7 +399,7 @@ export class LocalPlayer {
   }
 }
 
-const AVATAR_COLORS = [0x00e5ff, 0xff2bd6, 0x8b5cff, 0x5affd8, 0xffb03d, 0xff5c7a, 0x7dff6b, 0x4d8dff];
+const AVATAR_COLORS = [0x00e5ff, 0xff7a3d, 0x8dff6b, 0xffd24a, 0xff5c7a, 0x7df3ff, 0xc46bff, 0xffa8c8];
 
 function colorForName(name) {
   let h = 0;
@@ -374,7 +413,7 @@ function angleTo(current, target, k) {
   return current + d * k;
 }
 
-function makeTagTexture(name, color, bot) {
+function makeTagTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 320;
   canvas.height = 120;
@@ -385,10 +424,14 @@ function makeTagTexture(name, color, bot) {
   return { canvas, ctx, tex };
 }
 
+/**
+ * A humanoid combat robot. When killed it topples over and stays on the field
+ * as a wreck until it is rebuilt at a spawn point.
+ */
 export class RemoteAvatar {
   constructor(scene, data) {
     this.id = data.id;
-    this.name = data.name || 'PLAYER';
+    this.name = data.name || 'ROBOT';
     this.bot = !!data.bot;
     this.scene = scene;
     this.color = colorForName(this.name);
@@ -402,35 +445,44 @@ export class RemoteAvatar {
     this.lastHealth = -1;
     this.tagTimer = 0;
     this.disposed = false;
+    this.fallT = 0;
+    this.fallDir = 1;
+    this.bodyYaw = 0;
+    this.lastMoved = 0;
 
     this.root = new THREE.Group();
-    this.root.name = `avatar_${this.id}`;
+    this.root.name = `robot_${this.id}`;
     scene.add(this.root);
 
     this.body = new THREE.Group();
     this.root.add(this.body);
 
     const accent = new THREE.Color(this.color);
-    this.suitMat = new THREE.MeshStandardMaterial({
-      color: 0x151c33,
-      metalness: 0.6,
-      roughness: 0.4,
-      emissive: accent.clone().multiplyScalar(0.16),
+    this.chassisMat = new THREE.MeshStandardMaterial({
+      color: 0x9aa3aa,
+      metalness: 0.62,
+      roughness: 0.46,
+      emissive: new THREE.Color(0x000000),
     });
+    this.plateMat = new THREE.MeshStandardMaterial({
+      color: 0x6c757d,
+      metalness: 0.55,
+      roughness: 0.5,
+    });
+    this.darkMat = new THREE.MeshStandardMaterial({ color: 0x262c32, metalness: 0.7, roughness: 0.4 });
     this.accentMat = new THREE.MeshStandardMaterial({
       color: accent,
       emissive: accent,
-      emissiveIntensity: 2.2,
-      metalness: 0.4,
-      roughness: 0.3,
+      emissiveIntensity: 1.7,
+      metalness: 0.3,
+      roughness: 0.35,
     });
-    this.darkMat = new THREE.MeshStandardMaterial({ color: 0x0d1224, metalness: 0.7, roughness: 0.35 });
     this.visorMat = new THREE.MeshStandardMaterial({
-      color: 0xbffcff,
-      emissive: new THREE.Color(0x7df3ff),
-      emissiveIntensity: 3,
-      metalness: 0.5,
-      roughness: 0.2,
+      color: 0xffb27a,
+      emissive: new THREE.Color(0xff5a1f),
+      emissiveIntensity: 2.6,
+      metalness: 0.3,
+      roughness: 0.25,
     });
 
     const box = (w, h, d, x, y, z, mat, parent = this.body) => {
@@ -440,89 +492,87 @@ export class RemoteAvatar {
       parent.add(mesh);
       return mesh;
     };
+    const ball = (r, x, y, z, mat, parent = this.body) => {
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
 
-    box(0.66, 0.7, 0.4, 0, 1.16, 0, this.suitMat);
-    box(0.5, 0.12, 0.06, 0, 1.32, -0.2, this.accentMat);
-    box(0.3, 0.3, 0.34, 0, 1.66, 0, this.suitMat);
-    box(0.26, 0.1, 0.03, 0, 1.69, -0.175, this.visorMat);
-    box(0.34, 0.2, 0.24, 0, 1.14, 0.26, this.darkMat);
-    box(0.1, 0.42, 0.1, 0.2, 1.86, 0.12, this.darkMat);
+    // Pelvis + torso.
+    box(0.44, 0.24, 0.3, 0, 1.02, 0, this.darkMat);
+    box(0.56, 0.56, 0.34, 0, 1.42, 0, this.chassisMat);
+    box(0.44, 0.34, 0.07, 0, 1.45, -0.2, this.plateMat);
+    box(0.16, 0.1, 0.05, 0, 1.5, -0.245, this.accentMat);
+    box(0.5, 0.14, 0.36, 0, 1.12, 0, this.darkMat);
+    box(0.34, 0.36, 0.16, 0, 1.42, 0.24, this.plateMat);
+    box(0.08, 0.3, 0.08, 0.18, 1.62, 0.22, this.darkMat);
 
-    const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), this.accentMat);
-    antennaTip.position.set(0.2, 2.09, 0.12);
-    this.body.add(antennaTip);
+    // Neck + head.
+    box(0.14, 0.12, 0.14, 0, 1.75, 0, this.darkMat);
+    this.head = new THREE.Group();
+    this.head.position.set(0, 1.91, 0);
+    this.body.add(this.head);
+    box(0.3, 0.28, 0.3, 0, 0, 0, this.chassisMat, this.head);
+    box(0.24, 0.075, 0.03, 0, 0.03, -0.155, this.visorMat, this.head);
+    box(0.2, 0.05, 0.03, 0, -0.075, -0.152, this.darkMat, this.head);
+    box(0.05, 0.06, 0.05, -0.16, 0.02, 0, this.accentMat, this.head);
+    box(0.05, 0.06, 0.05, 0.16, 0.02, 0, this.accentMat, this.head);
+    // Antenna.
+    box(0.03, 0.2, 0.03, 0.1, 0.24, 0.06, this.darkMat, this.head);
+    ball(0.035, 0.1, 0.35, 0.06, this.accentMat, this.head);
 
-    const shoulderGeo = new THREE.SphereGeometry(0.16, 10, 8);
-    const shoulderL = new THREE.Mesh(shoulderGeo, this.accentMat);
-    shoulderL.position.set(-0.4, 1.4, 0);
-    this.body.add(shoulderL);
-    const shoulderR = new THREE.Mesh(shoulderGeo, this.accentMat);
-    shoulderR.position.set(0.4, 1.4, 0);
-    this.body.add(shoulderR);
+    // Shoulders + arms.
+    ball(0.14, -0.34, 1.66, 0, this.accentMat);
+    ball(0.14, 0.34, 1.66, 0, this.accentMat);
 
-    // Legs
-    this.legL = new THREE.Group();
-    this.legL.position.set(-0.17, 0.82, 0);
-    this.body.add(this.legL);
-    const legLMesh = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.26), this.suitMat);
-    legLMesh.position.y = -0.4;
-    legLMesh.castShadow = true;
-    this.legL.add(legLMesh);
-    const footL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.36), this.darkMat);
-    footL.position.set(0, -0.82, -0.05);
-    this.legL.add(footL);
+    const arm = (side) => {
+      const group = new THREE.Group();
+      group.position.set(side * 0.36, 1.64, 0);
+      this.body.add(group);
+      box(0.12, 0.34, 0.14, 0, -0.18, 0, this.chassisMat, group);
+      ball(0.075, 0, -0.37, 0, this.darkMat, group);
+      box(0.1, 0.32, 0.12, 0, -0.54, 0, this.plateMat, group);
+      box(0.12, 0.12, 0.14, 0, -0.72, -0.02, this.darkMat, group);
+      return group;
+    };
+    this.armR = arm(1);
+    this.armL = arm(-1);
 
-    this.legR = new THREE.Group();
-    this.legR.position.set(0.17, 0.82, 0);
-    this.body.add(this.legR);
-    const legRMesh = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.26), this.suitMat);
-    legRMesh.position.y = -0.4;
-    legRMesh.castShadow = true;
-    this.legR.add(legRMesh);
-    const footR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.36), this.darkMat);
-    footR.position.set(0, -0.82, -0.05);
-    this.legR.add(footR);
-
-    // Arms + gun
-    this.armR = new THREE.Group();
-    this.armR.position.set(0.44, 1.36, 0);
-    this.body.add(this.armR);
-    const armRMesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.55, 0.18), this.suitMat);
-    armRMesh.position.y = -0.24;
-    armRMesh.castShadow = true;
-    this.armR.add(armRMesh);
-
-    const gun = new THREE.Group();
-    gun.position.set(0, -0.44, -0.18);
-    this.armR.add(gun);
-    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.6), this.darkMat);
-    gunBody.position.z = -0.18;
-    gun.add(gunBody);
-    const gunGlow = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.36), this.accentMat);
-    gunGlow.position.set(0, 0.02, -0.3);
-    gun.add(gunGlow);
+    // Rifle in the right hand.
+    this.gunGroup = new THREE.Group();
+    this.gunGroup.position.set(0.03, -0.72, -0.12);
+    this.armR.add(this.gunGroup);
+    box(0.1, 0.12, 0.52, 0, 0, -0.24, this.darkMat, this.gunGroup);
+    box(0.06, 0.05, 0.34, 0, 0.02, -0.4, this.accentMat, this.gunGroup);
+    box(0.07, 0.14, 0.1, 0, -0.12, -0.16, this.darkMat, this.gunGroup);
     this.gunTip = new THREE.Object3D();
-    this.gunTip.position.set(0, 0.02, -0.55);
-    gun.add(this.gunTip);
-    this.gunGroup = gun;
+    this.gunTip.position.set(0, 0.01, -0.55);
+    this.gunGroup.add(this.gunTip);
 
-    this.armL = new THREE.Group();
-    this.armL.position.set(-0.44, 1.36, 0);
-    this.body.add(this.armL);
-    const armLMesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.52, 0.18), this.suitMat);
-    armLMesh.position.y = -0.24;
-    armLMesh.castShadow = true;
-    this.armL.add(armLMesh);
+    // Legs.
+    const leg = (side) => {
+      const group = new THREE.Group();
+      group.position.set(side * 0.16, 1.0, 0);
+      this.body.add(group);
+      box(0.17, 0.42, 0.2, 0, -0.22, 0, this.chassisMat, group);
+      ball(0.08, 0, -0.45, 0, this.darkMat, group);
+      box(0.15, 0.4, 0.18, 0, -0.65, 0, this.plateMat, group);
+      box(0.19, 0.1, 0.3, 0, -0.88, -0.05, this.darkMat, group);
+      return group;
+    };
+    this.legL = leg(-1);
+    this.legR = leg(1);
 
-    // Ground ring
+    // Ground marker.
     this.ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.44, 0.56, 32),
+      new THREE.RingGeometry(0.42, 0.54, 28),
       new THREE.MeshBasicMaterial({
         color: this.color,
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.5,
         side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     );
@@ -530,14 +580,14 @@ export class RemoteAvatar {
     this.ring.position.y = 0.04;
     this.root.add(this.ring);
 
-    // Name + health tag (single billboarded sprite).
-    const { canvas, ctx, tex } = makeTagTexture(this.name, this.colorHex, this.bot);
+    // Name + health tag.
+    const { canvas, ctx, tex } = makeTagTexture();
     this.tag = { canvas, ctx, tex };
     this.tagSprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true, depthWrite: false }),
     );
-    this.tagSprite.scale.set(2.3, 0.86, 1);
-    this.tagSprite.position.y = 2.4;
+    this.tagSprite.scale.set(2.1, 0.79, 1);
+    this.tagSprite.position.y = 2.45;
     this.root.add(this.tagSprite);
     this.refreshTag();
 
@@ -552,38 +602,37 @@ export class RemoteAvatar {
     ctx.clearRect(0, 0, w, h);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 34px "Segoe UI", Arial, sans-serif';
-    ctx.shadowColor = this.colorHex;
-    ctx.shadowBlur = 14;
+    ctx.font = '900 30px "Segoe UI", Arial, sans-serif';
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 8;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(this.name.toUpperCase(), w / 2, 32);
+    ctx.fillText(this.name.toUpperCase(), w / 2, 30);
     if (this.bot) {
       ctx.shadowBlur = 0;
-      ctx.font = '800 20px "Segoe UI", Arial, sans-serif';
+      ctx.font = '800 18px "Segoe UI", Arial, sans-serif';
       ctx.fillStyle = this.colorHex;
-      ctx.fillText('BOT', w / 2, 60);
+      ctx.fillText('ROBOT', w / 2, 56);
     }
     const health = Math.max(0, Math.min(100, this.target.health ?? 100));
-    const barW = 200;
+    const barW = 190;
     const barX = (w - barW) / 2;
-    const barY = 86;
+    const barY = 84;
     ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(4, 6, 18, 0.85)';
-    ctx.fillRect(barX - 3, barY - 3, barW + 6, 20);
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillStyle = 'rgba(8, 12, 10, 0.82)';
+    ctx.fillRect(barX - 3, barY - 3, barW + 6, 18);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(barX - 3, barY - 3, barW + 6, 20);
-    const hue = health > 55 ? 165 : health > 28 ? 45 : 350;
-    ctx.fillStyle = `hsl(${hue} 100% 58%)`;
-    ctx.shadowColor = `hsl(${hue} 100% 58%)`;
-    ctx.shadowBlur = 10;
-    ctx.fillRect(barX, barY, (barW * health) / 100, 14);
-    ctx.shadowBlur = 0;
+    ctx.strokeRect(barX - 3, barY - 3, barW + 6, 18);
+    const hue = health > 55 ? 130 : health > 28 ? 42 : 2;
+    ctx.fillStyle = `hsl(${hue} 90% 56%)`;
+    ctx.fillRect(barX, barY, (barW * health) / 100, 12);
     tex.needsUpdate = true;
+    void h;
   }
 
   setTarget(p) {
     if (!p) return;
+    const wasAlive = this.target.alive;
     this.target = {
       x: p.x,
       y: p.y ?? 0,
@@ -602,9 +651,20 @@ export class RemoteAvatar {
       this.root.position.set(p.x, p.y ?? 0, p.z);
       this.root.rotation.y = p.yaw ?? 0;
     }
-    if (this.target.alive && !this.wasAlive) {
-      // Fresh respawn: teleport instead of sliding across the map.
+    if (this.target.alive && !wasAlive) {
+      // Rebuilt: stand back up at the new spawn.
       this.root.position.set(p.x, p.y ?? 0, p.z);
+      this.body.rotation.set(0, 0, 0);
+      this.body.position.y = 0;
+      this.fallT = 0;
+      this.tagSprite.visible = true;
+      this.ring.visible = true;
+      this.legL.rotation.x = 0;
+      this.legR.rotation.x = 0;
+    }
+    if (!this.target.alive && wasAlive) {
+      this.fallT = 0.0001;
+      this.fallDir = Math.random() > 0.5 ? 1 : -1;
     }
     this.wasAlive = this.target.alive;
   }
@@ -621,8 +681,41 @@ export class RemoteAvatar {
   update(dt, camera, time) {
     if (this.disposed) return;
     const t = this.target;
-    this.root.visible = t.alive;
-    if (!t.alive) return;
+    void camera;
+
+    if (t.alive) {
+      this.root.visible = true;
+      this.tagSprite.visible = true;
+      this.ring.visible = true;
+    } else {
+      // Fall over, then remain as a wreck.
+      this.root.visible = true;
+      this.tagSprite.visible = false;
+      this.ring.visible = false;
+      if (this.fallT === 0) this.fallT = 0.0001;
+    }
+
+    if (!t.alive) {
+      this.fallT = Math.min(2.4, this.fallT + dt);
+      const k = Math.min(1, this.fallT / 0.72);
+      const eased = 1 - Math.pow(1 - k, 3);
+      // Slight bounce when the chassis hits the dirt.
+      const bounce = k >= 1 ? Math.sin(Math.min(1, (this.fallT - 0.72) / 0.5) * Math.PI) * 0.035 : 0;
+      this.body.rotation.x = -eased * (Math.PI / 2 - 0.04) * this.fallDir;
+      this.body.rotation.z = eased * 0.09 * this.fallDir;
+      this.body.position.y = bounce;
+      this.armR.rotation.x = -1.2 + eased * 1.7;
+      this.armL.rotation.x = -0.3 - eased * 1.5;
+      this.legL.rotation.x = -0.15 - eased * 0.25;
+      this.legR.rotation.x = 0.1 + eased * 0.2;
+      if (this.flashT > 0) {
+        this.flashT = Math.max(0, this.flashT - dt);
+        this.chassisMat.emissive.setRGB(this.flashT * 4, this.flashT * 2.4, this.flashT * 1.4);
+      } else {
+        this.chassisMat.emissive.setRGB(0, 0, 0);
+      }
+      return;
+    }
 
     const prevX = this.root.position.x;
     const prevZ = this.root.position.z;
@@ -633,39 +726,37 @@ export class RemoteAvatar {
     this.root.rotation.y = angleTo(this.root.rotation.y, t.yaw, 1 - Math.exp(-dt * 20));
 
     const moved = dt > 0 ? Math.hypot(this.root.position.x - prevX, this.root.position.z - prevZ) / dt : 0;
+    this.lastMoved = moved;
     const moving = moved > 0.35;
-    this.legPhase += dt * (moving ? 10 : 2.5);
-    const swing = moving ? Math.sin(this.legPhase) * 0.62 : Math.sin(this.legPhase) * 0.05;
+    this.legPhase += dt * (moving ? 9 : 2.2);
+    const swing = moving ? Math.sin(this.legPhase) * 0.6 : Math.sin(this.legPhase) * 0.04;
     this.legL.rotation.x = swing;
     this.legR.rotation.x = -swing;
-    this.armL.rotation.x = -swing * 0.6;
-    this.armR.rotation.x = -0.35 + swing * 0.15;
-    this.body.position.y = Math.abs(Math.sin(this.legPhase)) * (moving ? 0.035 : 0.012);
-    this.body.rotation.z = Math.sin(this.legPhase) * (moving ? 0.025 : 0.006);
+    this.armL.rotation.x = -swing * 0.55;
+    this.armR.rotation.x = -1.15 + swing * 0.12;
+    this.body.position.y = Math.abs(Math.sin(this.legPhase)) * (moving ? 0.03 : 0.01);
+    this.body.rotation.z = Math.sin(this.legPhase) * (moving ? 0.022 : 0.005);
+    this.body.rotation.x = 0;
+    this.head.rotation.y = Math.sin(time * 0.7 + this.legPhase * 0.4) * 0.12;
 
     this.ringPhase += dt * 2;
-    this.ring.material.opacity = 0.4 + Math.sin(this.ringPhase) * 0.2;
+    this.ring.material.opacity = 0.28 + Math.sin(this.ringPhase) * 0.12;
     this.ring.rotation.z += dt * 0.6;
 
     if (this.flashT > 0) {
       this.flashT = Math.max(0, this.flashT - dt);
       const f = this.flashT / 0.16;
-      this.suitMat.emissiveIntensity = 0.16 + f * 2.2;
-      this.accentMat.emissiveIntensity = 2.2 + f * 6;
+      this.chassisMat.emissive.setRGB(f * 1.4, f * 0.9, f * 0.6);
     } else {
-      this.suitMat.emissiveIntensity = 0.16;
-      this.accentMat.emissiveIntensity = 2.2;
+      this.chassisMat.emissive.setRGB(0, 0, 0);
     }
 
-    this.tagSprite.position.y = 2.4 + Math.sin(time * 2 + this.ringPhase) * 0.03;
+    this.tagSprite.position.y = 2.45 + Math.sin(time * 2 + this.ringPhase) * 0.03;
     this.tagTimer -= dt;
     if (this.tagTimer <= 0) {
       this.tagTimer = 0.25;
       this.refreshTag();
     }
-
-    // Used by other systems for distance based audio.
-    this.lastMoved = moved;
   }
 
   dispose() {

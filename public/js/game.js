@@ -1,17 +1,22 @@
 import * as THREE from 'three';
-import { EYE_HEIGHT, rayHitsArena, rayHitsPlayer } from './arena.js';
+import { rayHitsAnimal, rayHitsArena, rayHitsPlayer } from './arena.js';
 import { Effects } from './effects.js';
 import { Input, LocalPlayer, RemoteAvatar } from './player.js';
 import { WEAPONS, WEAPON_ORDER, createViewmodel } from './weapons.js';
 import { buildWorld } from './world.js';
+import { AnimalField } from './animals.js';
+
+const MAX_LIVES = 5;
 
 const TMP_DIR = new THREE.Vector3();
 const TMP_RIGHT = new THREE.Vector3();
 const TMP_UP = new THREE.Vector3();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
-function weaponColor(id) {
-  return WEAPONS[id]?.color || '#43e8ff';
+function freshMags() {
+  const mags = {};
+  for (const id of WEAPON_ORDER) mags[id] = WEAPONS[id].mag;
+  return mags;
 }
 
 export class Game {
@@ -31,6 +36,9 @@ export class Game {
     this.quality = 'high';
     this.moveAccumulator = 0;
     this.clock = 0;
+    this.lives = MAX_LIVES;
+    this.hunts = 0;
+    this.loadout = 'rifle';
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -54,6 +62,7 @@ export class Game {
 
     this.world = buildWorld(this.scene);
     this.effects = new Effects(this.scene);
+    this.animalField = new AnimalField(this.scene);
 
     // Separate scene so the weapon never clips through walls.
     this.viewScene = new THREE.Scene();
@@ -76,10 +85,11 @@ export class Game {
       onJump: () => this.audio.playJump(),
       onLand: () => this.audio.playLand(),
       onFootstep: () => this.audio.playFootstep(),
+      onDodge: () => this.audio.playDodge?.(),
     });
 
     this.weaponId = 'rifle';
-    this.mags = { pistol: WEAPONS.pistol.mag, shotgun: WEAPONS.shotgun.mag, rifle: WEAPONS.rifle.mag };
+    this.mags = freshMags();
     this.magSize = WEAPONS.rifle.mag;
     this.reloading = false;
     this.reloadStart = 0;
@@ -90,10 +100,13 @@ export class Game {
     this.gunMuzzle = null;
     this.viewFlash = null;
     this.viewFlashTimer = 0;
+    this.deathCameraPos = null;
+    this.deathCameraRot = null;
 
     this.onMove = null;
     this.onShoot = null;
     this.onWeaponChange = null;
+    this.onDodge = null;
     this.onLockChange = null;
 
     this.input.onLockChange = (locked) => {
@@ -192,6 +205,7 @@ export class Game {
     this.ui.showResults(null);
     this.ui.signalLost(false);
     this.ui.showPause(false);
+    this.ui.hideEliminated();
     this.ui.clearFeed();
     this.ui.setStreak(0);
     this.ui.setHealth(100);
@@ -199,6 +213,7 @@ export class Game {
 
     for (const av of this.avatars.values()) av.dispose();
     this.avatars.clear();
+    this.animalField.applySnapshot([]);
 
     for (const p of joined.players || []) {
       if (p.id !== this.selfId) this.getOrCreateAvatar(p);
@@ -212,13 +227,22 @@ export class Game {
       : { x: 0, y: 0, z: 24, yaw: 0 };
     this.local.reset(spawn);
     this.local.alive = self ? self.alive : true;
+    this.local.controlsEnabled = true;
+    this.local.dodgeCooldownUntil = 0;
     this.deathTilt = 0;
 
-    this.weaponId = 'rifle';
-    this.mags = { pistol: WEAPONS.pistol.mag, shotgun: WEAPONS.shotgun.mag, rifle: WEAPONS.rifle.mag };
+    this.lives = self?.lives ?? MAX_LIVES;
+    this.hunts = self?.hunts ?? 0;
+    this.ui.setLives(this.lives, MAX_LIVES);
+    this.ui.setHunts(this.hunts);
+    this.ui.setDodge(0);
+
+    this.mags = freshMags();
     this.reloading = false;
     this.ui.setReload(null);
-    this.equipWeapon('rifle', true);
+    const startWeapon = self && WEAPONS[self.weapon] ? self.weapon : this.loadout;
+    this.weaponId = null;
+    this.equipWeapon(startWeapon, true);
     this.ui.setHealth(self?.health ?? 100);
     this.ui.setShield(false);
     this.ui.setScores(self?.kills ?? 0, self?.deaths ?? 0);
@@ -251,6 +275,7 @@ export class Game {
     this.ui.setMenuBusy(false);
     for (const av of this.avatars.values()) av.dispose();
     this.avatars.clear();
+    this.animalField.applySnapshot([]);
     this.setMenuCamera();
   }
 
@@ -309,11 +334,23 @@ export class Game {
       }
     }
 
+    if (Array.isArray(snap.animals)) this.animalField.applySnapshot(snap.animals);
+
     if (self) {
       this.ui.setHealth(self.health);
       this.ui.setShield(!!self.shield);
       this.ui.setScores(self.kills, self.deaths);
       this.ui.setStreak(self.streak || 0);
+      this.lives = self.lives ?? this.lives;
+      this.hunts = self.hunts ?? this.hunts;
+      this.ui.setLives(this.lives, MAX_LIVES);
+      this.ui.setHunts(this.hunts);
+      if (typeof self.dodgeIn === 'number' && self.dodgeIn > 0) {
+        this.local.dodgeCooldownUntil = Math.max(
+          this.local.dodgeCooldownUntil,
+          performance.now() + self.dodgeIn,
+        );
+      }
       if (self.alive) {
         if (this.mode === 'dead') this.handleSelfRespawn();
         this.local.syncToServer(self.x, self.y, self.z);
@@ -321,6 +358,9 @@ export class Game {
         this.mode = 'dead';
         this.local.alive = false;
         this.gunRoot.visible = false;
+      }
+      if (self.eliminated && this.mode !== 'eliminated' && this.mode !== 'ended') {
+        this.enterEliminated('THE FIELD', self.weapon);
       }
     }
     this.ui.setTimer(snap.timeLeft);
@@ -351,6 +391,19 @@ export class Game {
     this.audio.playRemoteShoot(data.weapon, dist);
   }
 
+  onRemoteDodge(data) {
+    if (this.mode === 'menu') return;
+    if (data.id === this.selfId) return;
+    const av = this.avatars.get(data.id);
+    const x = Number.isFinite(data.x) ? data.x : av?.root.position.x ?? 0;
+    const z = Number.isFinite(data.z) ? data.z : av?.root.position.z ?? 0;
+    const pos = new THREE.Vector3(x, 0.15, z);
+    this.effects.spawnRing(pos, '#d8c3a0', 1.7, 0.5);
+    this.effects.spawnImpact(pos, '#cbb08a', 7);
+    const dist = this.camera.position.distanceTo(pos);
+    this.audio.playDodgeRemote?.(dist);
+  }
+
   onHit(data) {
     if (this.mode === 'menu') return;
     const isAttacker = data.attackerId === this.selfId;
@@ -365,12 +418,77 @@ export class Game {
       this.ui.flashDamage();
       this.audio.playDamage(data.damage);
       this.local.addShake(0.28 + Math.min(0.5, data.damage * 0.007));
+      // Point at whoever is shooting at us.
+      const attackerAv = data.attackerId ? this.avatars.get(data.attackerId) : null;
+      if (attackerAv) {
+        const dx = attackerAv.root.position.x - this.local.x;
+        const dz = attackerAv.root.position.z - this.local.z;
+        if (Math.hypot(dx, dz) > 0.05) {
+          const sourceYaw = Math.atan2(-dx, -dz);
+          const rel = Math.atan2(Math.sin(sourceYaw - this.local.yaw), Math.cos(sourceYaw - this.local.yaw));
+          this.ui.showHitDirection(-rel);
+        }
+      }
     }
     const av = this.avatars.get(data.targetId);
     if (av) av.flash();
     if (data.point) {
-      this.effects.spawnImpact(new THREE.Vector3(data.point.x, data.point.y, data.point.z), isAttacker ? '#bffcff' : '#ffb03d', isAttacker ? 10 : 6);
+      this.effects.spawnImpact(
+        new THREE.Vector3(data.point.x, data.point.y, data.point.z),
+        isAttacker ? '#bffcff' : '#ffb03d',
+        isAttacker ? 10 : 6,
+      );
     }
+  }
+
+  onAnimalHit(data) {
+    if (this.mode === 'menu') return;
+    const isAttacker = data.attackerId === this.selfId;
+    this.animalField.flash(data.animalId);
+    if (data.point) {
+      this.effects.spawnImpact(
+        new THREE.Vector3(data.point.x, data.point.y, data.point.z),
+        isAttacker ? '#ffd9a0' : '#c98b5e',
+        isAttacker ? 8 : 5,
+      );
+    }
+    if (isAttacker) {
+      this.ui.hitmarker(false, data.killed);
+      if (!data.killed) this.ui.damageNumber(data.damage);
+      this.audio.playHitmarker(false, data.killed);
+    }
+  }
+
+  onAnimalKilled(data) {
+    if (this.mode === 'menu') return;
+    this.animalField.kill(data.animalId);
+    if (data.point) {
+      this.effects.spawnKillBurst(new THREE.Vector3(data.point.x, data.point.y, data.point.z), '#ffcf87');
+    } else {
+      const animal = this.animalField.get(data.animalId);
+      if (animal) {
+        this.effects.spawnKillBurst(
+          new THREE.Vector3(animal.root.position.x, 0.8, animal.root.position.z),
+          '#ffcf87',
+        );
+      }
+    }
+    if (data.attackerId === this.selfId) {
+      this.hunts = data.hunts || this.hunts + 1;
+      this.ui.setHunts(this.hunts);
+      this.ui.killBanner(`HUNTED ${data.label} · +${data.heal} HULL`);
+      this.ui.notice(`+${data.heal} hull · ${data.hunts} hunt${data.hunts === 1 ? '' : 's'}`, 'heal');
+      this.audio.playKill();
+      this.audio.playHeal?.();
+    }
+    this.ui.killFeed({
+      killerName: data.attackerName || 'A HUNTER',
+      victimName: data.label,
+      weapon: data.weapon,
+      headshot: false,
+      selfKill: data.attackerId === this.selfId,
+      animal: true,
+    });
   }
 
   onKill(data) {
@@ -387,45 +505,72 @@ export class Game {
     }
     this.ui.killFeed({
       killerName: data.killerName,
-      victimName: data.victimName,
+      victimName: `${data.victimName}${data.eliminated ? ' (OUT)' : ''}`,
       weapon: data.weapon,
       headshot: data.headshot,
       selfKill: isSelfKill,
       selfDeath: data.victimId === this.selfId,
     });
     if (av) {
+      // Let the robot topple over instead of vanishing.
       av.target.alive = false;
-      av.wasAlive = false;
-      av.root.visible = false;
     }
   }
 
   onSelfDeath(data) {
-    this.mode = 'dead';
+    this.lives = Math.max(0, data.lives ?? this.lives);
+    this.ui.setLives(this.lives, MAX_LIVES);
     this.local.alive = false;
     this.reloading = false;
     this.ui.setReload(null);
     this.ui.setHealth(0);
     this.ui.setShield(false);
     this.ui.setLockHint(false);
-    this.ui.showDeath(data.killerName, data.weapon, data.respawnIn);
-    this.audio.playDeath();
     this.input.fireHeld = false;
     if (this.gunRoot) this.gunRoot.visible = false;
     this.deathTilt = 0;
     this.deathCameraPos = this.camera.position.clone();
     this.deathCameraRot = this.camera.rotation.clone();
+    this.audio.playDeath();
+
+    if (data.eliminated) {
+      this.enterEliminated(data.killerName, data.weapon);
+      return;
+    }
+
+    this.mode = 'dead';
+    this.ui.showDeath(data.killerName, data.weapon, data.respawnIn, this.lives, MAX_LIVES);
+  }
+
+  enterEliminated(killerName, weapon) {
+    this.mode = 'eliminated';
+    this.local.alive = false;
+    this.local.controlsEnabled = false;
+    this.reloading = false;
+    this.ui.setReload(null);
+    this.ui.setHealth(0);
+    this.ui.setShield(false);
+    this.ui.setLockHint(false);
+    this.input.fireHeld = false;
+    this.input.unlock();
+    if (this.gunRoot) this.gunRoot.visible = false;
+    this.deathTilt = 0;
+    this.ui.setLives(0, MAX_LIVES);
+    this.ui.showEliminated(killerName, weapon, this.hunts);
+    this.ui.setCrosshairVisible(false);
   }
 
   handleSelfRespawn() {
     if (this.mode !== 'dead') {
-      this.gunRoot.visible = true;
+      if (this.gunRoot) this.gunRoot.visible = this.mode === 'playing';
       return;
     }
     this.mode = 'playing';
     this.local.alive = true;
+    this.local.controlsEnabled = true;
     this.deathTilt = 0;
     this.ui.hideDeath();
+    this.ui.hideEliminated();
     this.ui.setHealth(100);
     this.ui.setShield(true);
     this.ui.setRespawnHint(false);
@@ -433,7 +578,8 @@ export class Game {
     this.ui.setLockHint(!this.input.locked);
     if (this.gunRoot) this.gunRoot.visible = true;
     this.audio.playRespawn();
-    this.mags = { pistol: WEAPONS.pistol.mag, shotgun: WEAPONS.shotgun.mag, rifle: WEAPONS.rifle.mag };
+    this.local.dodgeCooldownUntil = 0;
+    this.mags = freshMags();
     this.ui.setAmmo(this.mags[this.weaponId]);
   }
 
@@ -453,6 +599,7 @@ export class Game {
 
   onMatchEnd(data) {
     this.mode = 'ended';
+    this.local.controlsEnabled = false;
     this.ui.showResults(data, this.selfId, (data.restartIn || 14000) / 1000);
     this.ui.setLockHint(false);
     this.input.fireHeld = false;
@@ -470,14 +617,21 @@ export class Game {
     this.paused = false;
     this.local.alive = true;
     this.local.controlsEnabled = true;
+    this.local.dodgeCooldownUntil = 0;
+    this.lives = MAX_LIVES;
+    this.hunts = 0;
+    this.ui.setLives(MAX_LIVES, MAX_LIVES);
+    this.ui.setHunts(0);
+    this.ui.setDodge(0);
     this.ui.showResults(null);
     this.ui.showPause(false);
     this.ui.hideDeath();
+    this.ui.hideEliminated();
     this.ui.setCrosshairVisible(true);
     this.ui.setScores(0, 0);
     this.ui.setStreak(0);
     this.ui.setHealth(100);
-    this.mags = { pistol: WEAPONS.pistol.mag, shotgun: WEAPONS.shotgun.mag, rifle: WEAPONS.rifle.mag };
+    this.mags = freshMags();
     this.ui.setAmmo(this.mags[this.weaponId]);
     this.ui.notice('NEW MATCH — FIGHT!', 'streak');
     this.ui.setLockHint(!this.input.locked);
@@ -488,9 +642,8 @@ export class Game {
   // Weapons
   // ------------------------------------------------------------------
   equipWeapon(id, silent = false) {
-    if (!WEAPONS[id] || id === this.weaponId) {
-      if (!silent) return;
-    }
+    if (!WEAPONS[id]) return;
+    if (id === this.weaponId && !silent) return;
     this.weaponId = id;
     const def = this.getWeapon();
     this.reloading = false;
@@ -498,7 +651,7 @@ export class Game {
     this.magSize = def.mag;
     this.ui.setMagSize(def.mag);
     this.ui.setWeapon(def);
-    this.ui.setAmmo(this.mags[id]);
+    this.ui.setAmmo(this.mags[id] ?? def.mag);
     this.buildViewmodel(id);
     if (!silent) {
       this.audio.playSwitch();
@@ -557,6 +710,27 @@ export class Game {
     this.audio.playReload(this.weaponId);
   }
 
+  useDodge() {
+    if (this.mode !== 'playing' || this.paused || !this.local.alive) return false;
+    const input = this.input;
+    const forward = (input.isDown('KeyW') ? 1 : 0) - (input.isDown('KeyS') ? 1 : 0);
+    const strafe = (input.isDown('KeyD') ? 1 : 0) - (input.isDown('KeyA') ? 1 : 0);
+    const yaw = this.local.yaw;
+    let dx = -Math.sin(yaw) * forward + Math.cos(yaw) * strafe;
+    let dz = -Math.cos(yaw) * forward - Math.sin(yaw) * strafe;
+    if (Math.hypot(dx, dz) < 0.01) {
+      // Standing still: roll backwards away from the crosshair.
+      dx = Math.sin(yaw);
+      dz = Math.cos(yaw);
+    }
+    const len = Math.hypot(dx, dz) || 1;
+    dx /= len;
+    dz /= len;
+    if (!this.local.startDodge(dx, dz)) return false;
+    this.onDodge?.({ dir: { x: dx, z: dz } });
+    return true;
+  }
+
   tryFire(now) {
     if (this.mode !== 'playing' || this.paused || !this.local.alive) return;
     if (!this.input.locked) return;
@@ -580,9 +754,10 @@ export class Game {
     this.local.getForward(TMP_DIR);
     const origin = this.camera.position.clone();
     const muzzle = this.local.getMuzzleWorld(new THREE.Vector3());
-    const tracers = def.id === 'shotgun' ? 5 : 1;
+    const tracers = def.id === 'shotgun' ? 5 : def.id === 'smg' ? 2 : 1;
     let endpoint = null;
     let hitAvatar = null;
+    let hitAnimal = null;
 
     for (let i = 0; i < tracers; i++) {
       TMP_RIGHT.crossVectors(TMP_DIR, WORLD_UP).normalize();
@@ -595,16 +770,22 @@ export class Game {
       const trace = this.traceShot(origin, dir, def.range);
       endpoint = trace.point;
       hitAvatar = trace.avatar;
+      hitAnimal = trace.animal;
       this.effects.spawnTracer(muzzle, trace.point, def.color, def.id === 'shotgun' ? 0.03 : 0.045, 0.1);
       if (trace.avatar) {
         this.effects.spawnImpact(trace.point, '#bffcff', 5);
+      } else if (trace.animal) {
+        this.effects.spawnImpact(trace.point, '#ffd9a0', 6);
       } else {
         this.effects.spawnImpact(trace.point, def.color, def.id === 'shotgun' ? 4 : 8);
       }
     }
 
     // The authoritative direction is our aim vector (spread is re-applied server-side).
-    this.onShoot?.({ dir: { x: TMP_DIR.x, y: TMP_DIR.y, z: TMP_DIR.z } });
+    this.onShoot?.({
+      dir: { x: TMP_DIR.x, y: TMP_DIR.y, z: TMP_DIR.z },
+      weapon: this.weaponId,
+    });
 
     this.local.addRecoil(def.recoilPitch * (0.85 + Math.random() * 0.3), (Math.random() * 2 - 1) * def.recoilYaw);
     this.local.addShake(def.shake);
@@ -615,33 +796,46 @@ export class Game {
     this.audio.playShoot(def.id);
     void endpoint;
     void hitAvatar;
+    void hitAnimal;
   }
 
   traceShot(origin, dir, maxDist) {
     let bestT = maxDist;
     let avatar = null;
+    let animal = null;
     for (const av of this.avatars.values()) {
       if (!av.target.alive) continue;
       const hit = rayHitsPlayer(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, av.target, bestT);
       if (hit && hit.t < bestT) {
         bestT = hit.t;
         avatar = av;
+        animal = null;
+      }
+    }
+    for (const target of this.animalField.list()) {
+      const hit = rayHitsAnimal(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, target, bestT);
+      if (hit && hit.t < bestT) {
+        bestT = hit.t;
+        avatar = null;
+        animal = target;
       }
     }
     const wallT = rayHitsArena(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z);
     if (wallT < bestT) {
       bestT = wallT;
       avatar = null;
+      animal = null;
     }
     if (dir.y < -1e-6) {
       const floorT = -origin.y / dir.y;
       if (floorT > 0 && floorT < bestT) {
         bestT = floorT;
         avatar = null;
+        animal = null;
       }
     }
     const point = origin.clone().addScaledVector(dir, Math.max(0.5, bestT));
-    return { point, avatar, distance: bestT };
+    return { point, avatar, animal, distance: bestT };
   }
 
   flashViewmodel() {
@@ -669,7 +863,7 @@ export class Game {
   // Frame loop
   // ------------------------------------------------------------------
   handleActionInput(now) {
-    if (this.paused || this.mode === 'menu' || this.mode === 'ended') {
+    if (this.paused || this.mode === 'menu' || this.mode === 'ended' || this.mode === 'eliminated') {
       this.ui.showScoreboard(false);
       return;
     }
@@ -685,12 +879,21 @@ export class Game {
     if (input.wasPressed('Digit1')) this.switchWeapon('pistol');
     if (input.wasPressed('Digit2')) this.switchWeapon('shotgun');
     if (input.wasPressed('Digit3')) this.switchWeapon('rifle');
+    if (input.wasPressed('Digit4')) this.switchWeapon('smg');
+    if (input.wasPressed('Digit5')) this.switchWeapon('dmr');
     if (input.wasPressed('KeyQ')) this.cycleWeapon(-1);
     if (input.wasPressed('KeyR')) this.reload();
     const wheel = input.consumeWheel();
     if (wheel !== 0) this.cycleWeapon(wheel > 0 ? 1 : -1);
 
     if (!this.local.alive) return;
+    if (
+      input.wasPressed('ControlLeft') ||
+      input.wasPressed('ControlRight') ||
+      input.wasPressed('KeyC')
+    ) {
+      this.useDodge();
+    }
     const def = this.getWeapon();
     if (!this.reloading && def.auto && input.fireHeld) this.tryFire(now);
     else if (!this.reloading && !def.auto && input.firePressed) this.tryFire(now);
@@ -721,8 +924,9 @@ export class Game {
     const sway = Math.sin(this.clock * 1.4) * 0.006;
     const swayY = Math.cos(this.clock * 1.1) * 0.005;
     this.gunRoot.position.set(sway + bob * 0.6, swayY - bob, this.gunKick);
-    this.gunRoot.rotation.z = bob * 0.6;
+    this.gunRoot.rotation.z = bob * 0.6 + this.local.dodgeRoll * 1.6;
     this.gunRoot.rotation.x = this.gunKick * 1.5;
+    this.gunRoot.rotation.y = -this.local.dodgeRoll * 0.8;
 
     if (this.reloading) {
       const p = Math.min(1, (now - this.reloadStart) / Math.max(1, this.reloadEnd - this.reloadStart));
@@ -763,6 +967,17 @@ export class Game {
     }
   }
 
+  updateSpectatorCamera(dt) {
+    this.previewAngle += dt * 0.05;
+    const r = 43;
+    this.camera.position.set(Math.cos(this.previewAngle) * r, 25 + Math.sin(this.clock * 0.2) * 2, Math.sin(this.previewAngle) * r);
+    this.camera.lookAt(0, 3.2, 0);
+    if (this.camera.fov !== 62) {
+      this.camera.fov = 62;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
   frame(now) {
     requestAnimationFrame(this.frame);
     const dt = Math.min(0.05, Math.max(0.0001, (now - this.lastFrame) / 1000));
@@ -771,12 +986,17 @@ export class Game {
 
     this.ui.tick(now);
     this.handleActionInput(now);
+    if (this.mode === 'playing' || this.mode === 'dead') {
+      this.ui.setDodge(this.local.dodgeReadyIn(performance.now()));
+    }
 
     if (this.mode === 'menu') {
       this.previewAngle += dt * 0.07;
       const r = 46;
       this.camera.position.set(Math.cos(this.previewAngle) * r, 23 + Math.sin(this.clock * 0.25) * 2.5, Math.sin(this.previewAngle) * r);
       this.camera.lookAt(0, 4.5, 0);
+    } else if (this.mode === 'eliminated') {
+      this.updateSpectatorCamera(dt);
     } else if (this.mode === 'dead') {
       this.updateDeathCamera(dt);
     } else if (this.mode === 'playing' && this.local.alive) {
@@ -805,6 +1025,7 @@ export class Game {
 
     this.world.update(dt, this.clock);
     this.effects.update(dt);
+    this.animalField.update(dt, this.clock);
     for (const av of this.avatars.values()) av.update(dt, this.camera, this.clock);
     this.updateViewmodel(dt, now);
 

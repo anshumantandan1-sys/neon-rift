@@ -2,11 +2,19 @@ import { WEAPONS } from './weapons.js';
 
 const $ = (id) => document.getElementById(id);
 
-const WEAPON_SHORT = { pistol: 'PULSE', shotgun: 'NOVA', rifle: 'ION' };
+const WEAPON_SHORT = {
+  pistol: 'VANGUARD',
+  shotgun: 'SWEEPER',
+  rifle: 'RANGER',
+  smg: 'HORNET',
+  dmr: 'LONGSHOT',
+};
 const WEAPON_FULL = {
-  pistol: 'PULSE PISTOL',
-  shotgun: 'NOVA SHOTGUN',
-  rifle: 'ION RIFLE',
+  pistol: 'VANGUARD PISTOL',
+  shotgun: 'RANCH SWEEPER',
+  rifle: 'RANGER RIFLE',
+  smg: 'HORNET SMG',
+  dmr: 'LONGSHOT DMR',
 };
 
 function el(tag, className, text) {
@@ -29,6 +37,12 @@ export class UI {
     this.streakChip = $('streak-chip');
     this.streakValue = $('streak-value');
     this.shieldChip = $('shield-chip');
+    this.livesEl = $('lives');
+    this.huntsEl = $('hunts');
+    this.dodgeChip = $('dodge-chip');
+    this.dodgeFill = $('dodge-fill');
+    this.dodgeLabel = $('dodge-label');
+    this.hitDirectionEl = $('hit-direction');
     this.timerEl = $('match-timer');
     this.roomCodeEl = $('room-code');
     this.roomChip = $('room-chip');
@@ -36,6 +50,8 @@ export class UI {
     this.ammoMag = $('ammo-mag');
     this.ammoReserve = $('ammo-reserve');
     this.weaponSlots = [...document.querySelectorAll('.weapon-slot')];
+    this.loadoutCards = [...document.querySelectorAll('.loadout-card')];
+    this.loadoutInfo = $('loadout-info');
     this.reloadIndicator = $('reload-indicator');
     this.reloadFill = $('reload-fill');
     this.crosshair = $('crosshair');
@@ -50,8 +66,13 @@ export class UI {
     this.deathEl = $('death-screen');
     this.deathKiller = $('death-killer');
     this.deathWeapon = $('death-weapon');
+    this.deathLives = $('death-lives');
     this.respawnCountdown = $('respawn-countdown');
     this.respawnFill = $('respawn-fill');
+    this.eliminatedEl = $('eliminated');
+    this.elimKiller = $('elim-killer');
+    this.elimWeapon = $('elim-weapon');
+    this.elimHunts = $('elim-hunts');
     this.pauseEl = $('pause');
     this.resultsEl = $('results');
     this.resultsTitle = $('results-title');
@@ -78,7 +99,13 @@ export class UI {
     this.healthShown = 100;
     this.weaponId = 'rifle';
     this.magSize = 32;
+    this.maxLives = 5;
+    this.loadoutId = 'rifle';
+    this.dodgeLabelText = '';
     this.feedTimers = [];
+    this.setLives(5, 5);
+    this.setHunts(0);
+    this.setDodge(0);
   }
 
   // ---------------- screens ----------------
@@ -96,6 +123,7 @@ export class UI {
     this.menu.classList.remove('hidden');
     this.hud.classList.add('hidden');
     this.hideDeath();
+    this.hideEliminated();
     this.showPause(false);
     this.showResults(null);
     this.signalLost(false);
@@ -187,6 +215,46 @@ export class UI {
     this.shieldChip?.classList.toggle('hidden', !on);
   }
 
+  setLives(lives, max = this.maxLives) {
+    if (!this.livesEl) return;
+    const total = Math.max(1, Math.min(9, Math.round(max)));
+    const current = Math.max(0, Math.min(total, Math.round(lives)));
+    if (this.livesEl.dataset.total !== String(total) || this.livesEl.childElementCount !== total) {
+      this.livesEl.dataset.total = String(total);
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < total; i++) {
+        const heart = el('i', 'life-heart');
+        heart.setAttribute('aria-hidden', 'true');
+        frag.appendChild(heart);
+      }
+      this.livesEl.replaceChildren(frag);
+    }
+    [...this.livesEl.children].forEach((heart, i) => {
+      heart.classList.toggle('lost', i >= current);
+    });
+    this.livesEl.title = `${current} of ${total} lives left`;
+  }
+
+  setHunts(hunts) {
+    if (this.huntsEl) this.huntsEl.textContent = String(Math.max(0, Math.round(hunts || 0)));
+  }
+
+  setDodge(remainingMs) {
+    if (!this.dodgeChip) return;
+    const ready = remainingMs <= 0;
+    const label = ready ? 'READY' : `${(remainingMs / 1000).toFixed(1)}s`;
+    if (label !== this.dodgeLabelText) {
+      this.dodgeLabelText = label;
+      if (this.dodgeLabel) this.dodgeLabel.textContent = label;
+    }
+    this.dodgeChip.classList.toggle('ready', ready);
+    this.dodgeChip.classList.toggle('cooling', !ready);
+    if (this.dodgeFill) {
+      const pct = ready ? 100 : Math.max(0, Math.min(100, 100 - (remainingMs / 2600) * 100));
+      this.dodgeFill.style.width = `${pct}%`;
+    }
+  }
+
   setWeapon(def) {
     if (!def) return;
     this.weaponId = def.id;
@@ -196,11 +264,16 @@ export class UI {
     for (const slot of this.weaponSlots) {
       slot.classList.toggle('active', slot.dataset.weapon === def.id);
     }
+    this.setLoadout(def.id, false);
     this.setCrosshairGap(this.baseGap);
   }
 
   get baseGap() {
-    return this.weaponId === 'shotgun' ? 14 : this.weaponId === 'pistol' ? 8 : 10;
+    if (this.weaponId === 'shotgun') return 14;
+    if (this.weaponId === 'pistol') return 8;
+    if (this.weaponId === 'dmr') return 6;
+    if (this.weaponId === 'smg') return 11;
+    return 10;
   }
 
   setAmmo(mag, reserve = '∞') {
@@ -239,6 +312,20 @@ export class UI {
     if (text) this.respawnHint.textContent = text;
   }
 
+  // ---------------- loadout ----------------
+  setLoadout(id, announce = true) {
+    if (!WEAPONS[id]) return;
+    this.loadoutId = id;
+    for (const card of this.loadoutCards) {
+      card.classList.toggle('active', card.dataset.weapon === id);
+    }
+    if (this.loadoutInfo) {
+      const def = WEAPONS[id];
+      this.loadoutInfo.textContent = `${def.name.toUpperCase()} · ${def.damage} DMG · ${def.auto ? 'AUTO' : 'SEMI-AUTO'} · ${def.mag} ROUNDS · ${def.range}M`;
+    }
+    void announce;
+  }
+
   // ---------------- feedback ----------------
   hitmarker(headshot = false, killed = false) {
     this.hitmarkerEl.classList.remove('show', 'headshot', 'kill');
@@ -262,6 +349,15 @@ export class UI {
     this.damageFlashEl.classList.add('pulse');
   }
 
+  showHitDirection(angleRad) {
+    if (!this.hitDirectionEl || !Number.isFinite(angleRad)) return;
+    const deg = (angleRad * 180) / Math.PI;
+    this.hitDirectionEl.style.setProperty('--angle', `${deg.toFixed(1)}deg`);
+    this.hitDirectionEl.classList.remove('show');
+    void this.hitDirectionEl.offsetWidth;
+    this.hitDirectionEl.classList.add('show');
+  }
+
   lowHealth(on) {
     this.lowHealthEl.classList.toggle('on', !!on);
   }
@@ -273,10 +369,10 @@ export class UI {
     this.killBannerEl.classList.add('show');
   }
 
-  killFeed({ killerName, victimName, weapon, headshot, selfKill, selfDeath }) {
-    const row = el('div', `killfeed-row${selfKill ? ' self' : ''}`);
+  killFeed({ killerName, victimName, weapon, headshot, selfKill, selfDeath, animal }) {
+    const row = el('div', `killfeed-row${selfKill ? ' self' : ''}${animal ? ' animal' : ''}`);
     row.appendChild(el('span', 'kf-killer', killerName));
-    row.appendChild(el('span', 'kf-icon', headshot ? '◎' : '✖'));
+    row.appendChild(el('span', 'kf-icon', animal ? '❖' : headshot ? '◎' : '✖'));
     row.appendChild(el('span', 'kf-weapon', WEAPON_SHORT[weapon] || 'RIFT'));
     row.appendChild(el('span', 'kf-victim', victimName));
     this.killFeedEl.appendChild(row);
@@ -308,13 +404,19 @@ export class UI {
     this.feedTimers = [];
   }
 
-  // ---------------- death ----------------
-  showDeath(killerName, weapon, respawnMs) {
-    this.deathKiller.textContent = killerName || 'THE ARENA';
+  // ---------------- death / elimination ----------------
+  showDeath(killerName, weapon, respawnMs, lives = 0, maxLives = this.maxLives) {
+    this.deathKiller.textContent = killerName || 'THE FIELD';
     this.deathWeapon.textContent = WEAPON_FULL[weapon] || 'RIFT ENERGY';
     this.deathDuration = respawnMs || 3200;
     this.deathDeadline = performance.now() + this.deathDuration;
     this.deathEl.classList.remove('hidden');
+    this.hideEliminated();
+    if (this.deathLives) {
+      const left = Math.max(0, Math.round(lives));
+      const total = Math.max(left, Math.round(maxLives));
+      this.deathLives.textContent = `${'♥'.repeat(left)}${'♡'.repeat(Math.max(0, total - left))}  ${left} LEFT`;
+    }
     this.respawnCountdown.textContent = (this.deathDuration / 1000).toFixed(1);
     this.respawnFill.style.width = '0%';
     this.setRespawnHint(false);
@@ -328,6 +430,24 @@ export class UI {
     this.setCrosshairVisible(true);
   }
 
+  showEliminated(killerName, weapon, hunts = 0) {
+    this.mode = 'eliminated';
+    this.deathEl.classList.add('hidden');
+    this.deathDeadline = 0;
+    if (this.elimKiller) this.elimKiller.textContent = killerName || 'THE FIELD';
+    if (this.elimWeapon) this.elimWeapon.textContent = WEAPON_FULL[weapon] || 'RIFT ENERGY';
+    if (this.elimHunts) this.elimHunts.textContent = String(Math.max(0, Math.round(hunts || 0)));
+    this.eliminatedEl?.classList.remove('hidden');
+    this.setRespawnHint(false);
+    this.setCrosshairVisible(false);
+    this.setLockHint(false);
+    this.lowHealth(false);
+  }
+
+  hideEliminated() {
+    this.eliminatedEl?.classList.add('hidden');
+  }
+
   // ---------------- scoreboard ----------------
   showScoreboard(show) {
     this.scoreboardEl.classList.toggle('hidden', !show);
@@ -335,25 +455,31 @@ export class UI {
 
   updateScoreboard(players, selfId) {
     if (!this.scoreboardEl || this.scoreboardEl.classList.contains('hidden')) return;
-    const sorted = [...players].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    const sorted = [...players].sort((a, b) => {
+      if (!!a.eliminated !== !!b.eliminated) return a.eliminated ? 1 : -1;
+      return b.kills - a.kills || a.deaths - b.deaths;
+    });
     const frag = document.createDocumentFragment();
     sorted.forEach((p, i) => {
       const tr = document.createElement('tr');
       if (p.id === selfId) tr.className = 'self';
+      if (p.eliminated) tr.classList.add('out');
       const rankTd = el('td', 'rank', `${i + 1}`);
       const nameTd = document.createElement('td');
       const wrap = el('div', 'player-cell');
       const dot = el('span', 'player-dot');
-      dot.style.color = p.id === selfId ? '#7dff6b' : '#43e8ff';
+      dot.style.color = p.id === selfId ? '#7dff6b' : p.bot ? '#ffb03d' : '#43e8ff';
       wrap.appendChild(dot);
       wrap.appendChild(el('span', '', p.name));
-      if (p.bot) wrap.appendChild(el('span', 'bot-tag', 'BOT'));
-      if (!p.alive) wrap.appendChild(el('span', 'dead-tag', 'DOWN'));
+      if (p.bot) wrap.appendChild(el('span', 'bot-tag', 'ROBOT'));
+      if (p.eliminated) wrap.appendChild(el('span', 'dead-tag', 'OUT'));
+      else if (!p.alive) wrap.appendChild(el('span', 'dead-tag', 'DOWN'));
       nameTd.appendChild(wrap);
       const kTd = el('td', '', String(p.kills));
       const dTd = el('td', '', String(p.deaths));
-      const sTd = el('td', '', String(p.streak || 0));
-      tr.append(rankTd, nameTd, kTd, dTd, sTd);
+      const lTd = el('td', 'lives-cell', '♥'.repeat(Math.max(0, p.lives ?? 0)) || '—');
+      const hTd = el('td', '', String(p.hunts || 0));
+      tr.append(rankTd, nameTd, kTd, dTd, lTd, hTd);
       frag.appendChild(tr);
     });
     this.scoreboardBody.replaceChildren(frag);
@@ -374,17 +500,23 @@ export class UI {
     const winner = standings[0];
     const isWinner = winner && winner.id === selfId && winner.kills > 0;
     this.resultsTitle.textContent = isWinner ? 'VICTORY' : 'MATCH COMPLETE';
-    this.resultsSub.textContent = winner
-      ? `${winner.name} takes the rift with ${winner.kills} elimination${winner.kills === 1 ? '' : 's'}`
-      : 'Top fraggers of the rift';
+    if (winner && data.reason === 'last-standing') {
+      this.resultsSub.textContent = `${winner.name} is the last fighter standing with ${winner.lives ?? 0} live${winner.lives === 1 ? '' : 's'}`;
+    } else if (winner) {
+      this.resultsSub.textContent = `${winner.name} tops the ranch with ${winner.kills} elimination${winner.kills === 1 ? '' : 's'}`;
+    } else {
+      this.resultsSub.textContent = 'Top guns of the ranch';
+    }
     const frag = document.createDocumentFragment();
     standings.forEach((p, i) => {
       const li = document.createElement('li');
       if (p.id === selfId) li.className = 'self';
+      if (p.eliminated) li.classList.add('out');
       li.appendChild(el('span', 'res-rank', `#${i + 1}`));
-      li.appendChild(el('span', 'res-name', p.name + (p.bot ? ' [BOT]' : '')));
+      li.appendChild(el('span', 'res-name', p.name + (p.bot ? ' [ROBOT]' : '')));
       li.appendChild(el('span', 'res-score', `${p.kills} K`));
-      li.appendChild(el('span', 'res-deaths', `${p.deaths} D`));
+      li.appendChild(el('span', 'res-deaths', `${p.lives ?? 0} ♥`));
+      li.appendChild(el('span', 'res-hunts', `${p.hunts || 0} H`));
       frag.appendChild(li);
     });
     this.resultsList.replaceChildren(frag);
@@ -394,6 +526,7 @@ export class UI {
     this.showScoreboard(false);
     this.showPause(false);
     this.hideDeath();
+    this.hideEliminated();
     this.setCrosshairVisible(false);
     this.setLockHint(false);
   }

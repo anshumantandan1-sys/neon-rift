@@ -97,6 +97,15 @@ export class AudioEngine {
       this.tone({ freq: 780 * pitch, freqEnd: 190, type: 'square', dur: 0.1, gain: 0.1 });
       this.tone({ freq: 1450 * pitch, freqEnd: 500, type: 'triangle', dur: 0.07, gain: 0.06 });
       this.noise({ dur: 0.1, gain: 0.16, type: 'bandpass', freq: 2200, freqEnd: 500, q: 1.1 });
+    } else if (weaponId === 'smg') {
+      this.tone({ freq: 620 * pitch, freqEnd: 150, type: 'square', dur: 0.055, gain: 0.07 });
+      this.tone({ freq: 1700 * pitch, freqEnd: 640, type: 'triangle', dur: 0.04, gain: 0.04 });
+      this.noise({ dur: 0.05, gain: 0.12, type: 'bandpass', freq: 2600, freqEnd: 900, q: 1.2 });
+    } else if (weaponId === 'dmr') {
+      this.tone({ freq: 320 * pitch, freqEnd: 70, type: 'sawtooth', dur: 0.16, gain: 0.11 });
+      this.tone({ freq: 980 * pitch, freqEnd: 260, type: 'square', dur: 0.1, gain: 0.05 });
+      this.noise({ dur: 0.16, gain: 0.2, type: 'highpass', freq: 1900, freqEnd: 380 });
+      this.noise({ dur: 0.28, gain: 0.08, type: 'lowpass', freq: 900, freqEnd: 150, when: 0.03 });
     } else {
       this.tone({ freq: 460 * pitch, freqEnd: 95, type: 'sawtooth', dur: 0.09, gain: 0.08 });
       this.tone({ freq: 1250 * pitch, freqEnd: 420, type: 'square', dur: 0.06, gain: 0.035 });
@@ -113,6 +122,12 @@ export class AudioEngine {
       this.tone({ freq: 130, freqEnd: 40, type: 'sine', dur: 0.24, gain: 0.18 * vol });
     } else if (weaponId === 'pistol') {
       this.noise({ dur: 0.08, gain: 0.1 * vol, type: 'bandpass', freq: 1900, freqEnd: 500 });
+    } else if (weaponId === 'smg') {
+      this.noise({ dur: 0.045, gain: 0.075 * vol, type: 'bandpass', freq: 2400, freqEnd: 800 });
+      this.tone({ freq: 520, freqEnd: 160, type: 'square', dur: 0.045, gain: 0.035 * vol });
+    } else if (weaponId === 'dmr') {
+      this.noise({ dur: 0.14, gain: 0.13 * vol, type: 'highpass', freq: 1700, freqEnd: 400 });
+      this.tone({ freq: 300, freqEnd: 80, type: 'sawtooth', dur: 0.13, gain: 0.06 * vol });
     } else {
       this.noise({ dur: 0.07, gain: 0.11 * vol, type: 'highpass', freq: 1500, freqEnd: 600 });
       this.tone({ freq: 400, freqEnd: 90, type: 'sawtooth', dur: 0.07, gain: 0.04 * vol });
@@ -139,6 +154,26 @@ export class AudioEngine {
     this.tone({ freq: 880, type: 'triangle', dur: 0.09, gain: 0.1 });
     this.tone({ freq: 1320, type: 'triangle', dur: 0.09, gain: 0.1, when: 0.08 });
     this.tone({ freq: 1760, type: 'triangle', dur: 0.16, gain: 0.1, when: 0.16 });
+  }
+
+  playDodge() {
+    this.noise({ dur: 0.22, gain: 0.11, type: 'bandpass', freq: 900, freqEnd: 2600, q: 0.7 });
+    this.tone({ freq: 300, freqEnd: 520, type: 'sine', dur: 0.16, gain: 0.045 });
+    this.noise({ dur: 0.18, gain: 0.06, type: 'lowpass', freq: 600, freqEnd: 160, when: 0.05 });
+  }
+
+  playDodgeRemote(distance = 10) {
+    if (!this.ready) return;
+    const vol = Math.max(0.02, Math.min(1, 1 - distance / 40));
+    if (vol < 0.05) return;
+    this.noise({ dur: 0.2, gain: 0.07 * vol, type: 'bandpass', freq: 800, freqEnd: 2200, q: 0.7 });
+    this.noise({ dur: 0.14, gain: 0.05 * vol, type: 'lowpass', freq: 500, freqEnd: 140, when: 0.04 });
+  }
+
+  playHeal() {
+    this.tone({ freq: 620, freqEnd: 930, type: 'sine', dur: 0.18, gain: 0.07 });
+    this.tone({ freq: 930, freqEnd: 1240, type: 'triangle', dur: 0.2, gain: 0.055, when: 0.09 });
+    this.tone({ freq: 1240, type: 'sine', dur: 0.22, gain: 0.035, when: 0.19 });
   }
 
   playDeath() {

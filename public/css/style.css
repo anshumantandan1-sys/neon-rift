@@ -1901,3 +1901,509 @@ kbd {
     display: flex;
   }
 }
+
+/* =========================================================
+   v1.1 — COUNTRYSIDE ADDITIONS
+   ========================================================= */
+
+/* ---------- Loadout picker ---------- */
+.loadout-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.loadout-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+.loadout-hint {
+  font-size: 7.5px;
+  letter-spacing: 0.12em;
+  color: rgba(143, 163, 200, 0.6);
+  white-space: nowrap;
+}
+
+.loadout-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.loadout-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 8px 8px;
+  border-radius: 8px;
+  background: rgba(4, 7, 16, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-family: var(--font-display);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+
+.loadout-card:hover {
+  border-color: rgba(67, 232, 255, 0.45);
+  transform: translateY(-1px);
+}
+
+.loadout-card.active {
+  color: #fff;
+  border-color: rgba(125, 255, 107, 0.6);
+  background: linear-gradient(160deg, rgba(125, 255, 107, 0.13), rgba(4, 7, 16, 0.72));
+  box-shadow: 0 0 18px rgba(125, 255, 107, 0.16);
+}
+
+.lo-key {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  font-size: 8px;
+  color: rgba(143, 163, 200, 0.75);
+}
+
+.lo-name {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+}
+
+.loadout-card.active .lo-name {
+  color: var(--lime);
+  text-shadow: 0 0 10px rgba(125, 255, 107, 0.4);
+}
+
+.lo-type {
+  font-size: 7px;
+  letter-spacing: 0.16em;
+  color: rgba(143, 163, 200, 0.75);
+}
+
+.lo-stat {
+  margin-top: 5px;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.lo-stat i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--violet));
+}
+
+.loadout-card.active .lo-stat i {
+  background: linear-gradient(90deg, var(--lime), var(--cyan));
+}
+
+.loadout-info {
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(143, 163, 200, 0.85);
+}
+
+/* ---------- Field notes ---------- */
+.field-notes {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.field-notes li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.field-notes li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--cyan);
+}
+
+.field-notes b {
+  color: #dff8ff;
+}
+
+/* ---------- Lives + hunts ---------- */
+.lives-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.lives-label {
+  font-family: var(--font-display);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+.lives {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.life-heart {
+  font-style: normal;
+  font-size: 15px;
+  line-height: 1;
+  color: #ff5c7a;
+  text-shadow: 0 0 8px rgba(255, 61, 94, 0.7);
+  transition: opacity 0.2s, filter 0.2s;
+}
+
+.life-heart::before {
+  content: '♥';
+}
+
+.life-heart.lost {
+  color: rgba(255, 143, 163, 0.28);
+  text-shadow: none;
+}
+
+.hunts-chip {
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 176, 61, 0.09);
+  border: 1px solid rgba(255, 176, 61, 0.35);
+  font-family: var(--font-display);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--orange);
+  white-space: nowrap;
+}
+
+.hunts-chip b {
+  color: #ffffff;
+  font-size: 11px;
+  margin-left: 3px;
+}
+
+/* ---------- Dodge meter ---------- */
+.dodge-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(6, 10, 22, 0.82);
+  border: 1px solid rgba(67, 232, 255, 0.26);
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  backdrop-filter: blur(6px);
+}
+
+.dodge-chip.ready {
+  border-color: rgba(125, 255, 107, 0.5);
+  color: var(--lime);
+  box-shadow: 0 0 16px rgba(125, 255, 107, 0.14);
+}
+
+.dodge-chip.cooling {
+  opacity: 0.78;
+}
+
+.dodge-key {
+  font-size: 8px;
+  font-weight: 700;
+  color: #04121a;
+  background: var(--cyan);
+  border-radius: 4px;
+  padding: 2px 5px;
+  letter-spacing: 0.08em;
+}
+
+.dodge-chip.ready .dodge-key {
+  background: var(--lime);
+}
+
+.dodge-name {
+  color: inherit;
+}
+
+.dodge-meter {
+  width: 70px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.13);
+  overflow: hidden;
+}
+
+#dodge-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--lime));
+  transition: width 0.08s linear;
+}
+
+.dodge-label {
+  min-width: 40px;
+  text-align: right;
+  font-size: 8px;
+  color: #ffffff;
+}
+
+/* ---------- Hit direction ---------- */
+.hit-direction {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  --angle: 0deg;
+  transform: rotate(var(--angle));
+  pointer-events: none;
+  opacity: 0;
+}
+
+.hit-direction.show {
+  animation: hitDirIn 0.85s ease-out;
+}
+
+.hit-arrow {
+  position: absolute;
+  left: -9px;
+  top: -108px;
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 17px solid #ff5c7a;
+  filter: drop-shadow(0 0 7px rgba(255, 61, 94, 0.9));
+}
+
+.hit-arc {
+  position: absolute;
+  left: -82px;
+  top: -82px;
+  width: 164px;
+  height: 164px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 61, 94, 0.45);
+  box-shadow: inset 0 0 18px rgba(255, 61, 94, 0.15);
+}
+
+@keyframes hitDirIn {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  65% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+/* ---------- Notices / feed variants ---------- */
+.notice.danger {
+  color: var(--red);
+  border-color: rgba(255, 61, 94, 0.45);
+  background: rgba(255, 61, 94, 0.08);
+}
+
+.notice.heal {
+  color: var(--lime);
+  border-color: rgba(125, 255, 107, 0.4);
+  background: rgba(125, 255, 107, 0.08);
+}
+
+.killfeed-row.animal {
+  border-right-color: var(--orange);
+}
+
+.killfeed-row.animal .kf-victim {
+  color: #ffd9a0;
+}
+
+/* ---------- Crosshair variants ---------- */
+.crosshair-smg {
+  --gap: 11px;
+  --len: 7px;
+  --ch-color: #ffe28a;
+  filter: drop-shadow(0 0 4px rgba(255, 210, 74, 0.8));
+}
+
+.crosshair-dmr {
+  --gap: 6px;
+  --len: 11px;
+  --ch-color: #a8f6ff;
+  filter: drop-shadow(0 0 4px rgba(125, 243, 255, 0.85));
+}
+
+/* ---------- Death lives / elimination ---------- */
+.death-lives {
+  margin-top: 14px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  color: #ff8fa3;
+  text-shadow: 0 0 16px rgba(255, 61, 94, 0.5);
+}
+
+.eliminated-overlay {
+  z-index: 34;
+  background:
+    radial-gradient(ellipse at center, rgba(30, 0, 10, 0.4), rgba(3, 3, 8, 0.92)),
+    linear-gradient(rgba(20, 0, 8, 0.25), rgba(20, 0, 8, 0.25));
+}
+
+.elim-panel {
+  width: min(540px, 92vw);
+  text-align: center;
+}
+
+.elim-kicker {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.42em;
+  color: var(--red);
+}
+
+.elim-title {
+  font-family: var(--font-display);
+  font-size: clamp(42px, 7vw, 74px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  margin: 6px 0 12px;
+  text-shadow: 0 0 30px rgba(255, 61, 94, 0.8), 0 0 80px rgba(255, 61, 94, 0.35);
+}
+
+.elim-by {
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #ffc4cd;
+}
+
+.elim-by b {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: #ffffff;
+}
+
+.elim-stats {
+  margin: 18px 0 14px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+.elim-stats b {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 18px;
+  color: var(--orange);
+}
+
+.elim-panel .pause-note {
+  margin-bottom: 18px;
+}
+
+/* ---------- Scoreboard / results extras ---------- */
+.scoreboard-table td.lives-cell {
+  color: #ff8fa3;
+  letter-spacing: 0.08em;
+}
+
+.scoreboard-table tr.out td {
+  opacity: 0.45;
+}
+
+.results-list li {
+  grid-template-columns: 34px 1fr auto auto auto;
+}
+
+.results-list li.out {
+  opacity: 0.55;
+}
+
+.results-list .res-hunts {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--orange);
+  min-width: 42px;
+  text-align: right;
+}
+
+/* ---------- Weapon slot fit for five guns ---------- */
+.weapon-panel {
+  min-width: 288px;
+}
+
+.weapon-slots {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.weapon-slot {
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+}
+
+/* ---------- Responsive tweaks ---------- */
+@media (max-width: 900px) {
+  .loadout-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .loadout-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .loadout-card {
+    padding: 7px 6px 6px;
+  }
+
+  .weapon-panel {
+    min-width: 196px;
+  }
+
+  .weapon-slot {
+    font-size: 6.5px;
+    padding: 2px 5px;
+  }
+
+  .dodge-meter {
+    width: 44px;
+  }
+
+  .dodge-chip {
+    font-size: 8px;
+    padding: 4px 7px;
+  }
+
+  .lo-name {
+    font-size: 8px;
+  }
+}

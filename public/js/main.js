@@ -19,6 +19,7 @@ const STORAGE = {
   sens: 'neonrift.sensitivity',
   muted: 'neonrift.muted',
   quality: 'neonrift.quality',
+  loadout: 'neonrift.loadout',
 };
 
 function safeGet(key) {
@@ -67,6 +68,7 @@ if (game) {
   game.onMove = (data) => socket?.emit('move', data);
   game.onShoot = (data) => socket?.emit('shoot', data);
   game.onWeaponChange = (weapon) => socket?.emit('weapon', { weapon });
+  game.onDodge = (data) => socket?.emit('dodge', data);
 
   game.onLockChange = (locked) => {
     if (locked) {
@@ -105,6 +107,24 @@ if (game) {
   const savedMute = safeGet(STORAGE.muted) === '1';
   audio.setMuted(savedMute);
   ui.setMuted(savedMute);
+
+  // Starting loadout persistence + menu picker.
+  const LOADOUTS = ['pistol', 'shotgun', 'rifle', 'smg', 'dmr'];
+  const storedLoadout = safeGet(STORAGE.loadout);
+  const savedLoadout = LOADOUTS.includes(storedLoadout) ? storedLoadout : 'rifle';
+  game.loadout = savedLoadout;
+  ui.setLoadout(savedLoadout);
+  for (const card of document.querySelectorAll('.loadout-card')) {
+    card.addEventListener('click', () => {
+      const id = card.dataset.weapon;
+      if (!LOADOUTS.includes(id) || !game) return;
+      game.loadout = id;
+      ui.setLoadout(id);
+      safeSet(STORAGE.loadout, id);
+      audio.init();
+      audio.playUiClick();
+    });
+  }
 
   const nameInput = document.getElementById('name-input');
   if (nameInput) nameInput.value = safeGet(STORAGE.name) || randomCallsign();
@@ -168,6 +188,9 @@ function wireSocket(sock) {
   sock.on('shot', (data) => game?.onRemoteShot(data));
   sock.on('hit', (data) => game?.onHit(data));
   sock.on('kill', (data) => game?.onKill(data));
+  sock.on('dodge', (data) => game?.onRemoteDodge(data));
+  sock.on('animalHit', (data) => game?.onAnimalHit(data));
+  sock.on('animalKilled', (data) => game?.onAnimalKilled(data));
   sock.on('death', (data) => game?.onSelfDeath(data));
   sock.on('respawn', (data) => game?.onRespawn(data));
   sock.on('matchEnd', (data) => game?.onMatchEnd(data));
@@ -218,7 +241,7 @@ function requestJoin(room, buttonEl) {
   ui.setMenuBusy(true, 'LINKING…');
   if (buttonEl) buttonEl.blur();
 
-  const payload = { name, room: room || 'AUTO' };
+  const payload = { name, room: room || 'AUTO', weapon: game.loadout || 'rifle' };
   pendingJoin = payload;
   joined = false;
 
@@ -311,6 +334,11 @@ document.getElementById('leave-btn')?.addEventListener('click', () => {
 });
 
 document.getElementById('results-leave-btn')?.addEventListener('click', () => {
+  audio.playUiClick();
+  leaveMatch();
+});
+
+document.getElementById('elim-leave-btn')?.addEventListener('click', () => {
   audio.playUiClick();
   leaveMatch();
 });
